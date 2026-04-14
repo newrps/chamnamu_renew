@@ -1,0 +1,29 @@
+{
+  "ads": [
+    {
+      "type": "text",
+      "url": "https://link.coupang.com/a/cMTUFb",
+      "content": "순하디 순한 도톰한~ 물티슈 구매하기",
+      "backgroundColor": "linear-gradient(135deg, #ff6b6b, #ee5a24)"
+    },
+    {
+      "type": "text",
+      "url": "https://link.coupang.com/a/cMT3kV",
+      "content": "뉴발란스 스탠다드 중목 양말 5팩 구매하기",
+      "backgroundColor": "linear-gradient(135deg, #4ecdc4, #44a08d)"
+    },
+    {
+      "type": "text",
+      "url": "https://link.coupang.com/a/cMT3Us",
+      "content": "스탠리 퀜처 H2.0 플로우 스테이트 텀블러 구매하기",
+      "backgroundColor": "linear-gradient(135deg, #667eea, #764ba2)"
+    },
+    {
+      "type": "text",
+      "url": "https://link.coupang.com/a/cNkwZi",
+      "content": "서울우유 더 진한 순수 플레인 요거트",
+      "backgroundColor": "linear-gradient(135deg, #667eea, #764ba2)"
+    }
+
+  ]
+}
