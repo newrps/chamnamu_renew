@@ -400,7 +400,7 @@
         text-align: center;
         border-bottom: 1px solid #ddd;
         position: relative;
-        z-index: 100; /* locations-panel(50)보다 위 */
+        z-index: 300;
     }
 
     .header h1 {
@@ -1010,7 +1010,7 @@
     width: min(320px, 90vw);
     background: white;
     box-shadow: -4px 0 20px rgba(0,0,0,0.15);
-    z-index: 50;
+    z-index: 200;
     display: flex;
     flex-direction: column;
     overflow: hidden;
