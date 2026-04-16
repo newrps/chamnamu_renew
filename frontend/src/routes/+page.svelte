@@ -54,6 +54,10 @@
     }
 
     function handleLocationMarkerClick(loc: SavedLocation) {
+        if (isHeadingActive && mapComponent) {
+            mapComponent.stopHeading();
+            isGPSLocating = false;
+        }
         if (mapComponent) mapComponent.setCenter(loc.lat, loc.lng);
     }
 
@@ -395,6 +399,8 @@
         padding: 15px 20px;
         text-align: center;
         border-bottom: 1px solid #ddd;
+        position: relative;
+        z-index: 100; /* locations-panel(50)보다 위 */
     }
 
     .header h1 {
