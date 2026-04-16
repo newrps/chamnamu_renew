@@ -238,11 +238,6 @@
 
     // 헤딩 업데이트 이벤트 처리
     function onHeadingUpdate(event: CustomEvent<{ lat: number, lng: number, heading: number, accuracy?: number }>) {
-        // accuracy가 있는 이벤트 = watchPosition(GPS)에서 온 것만 스피닝 종료
-        // accuracy가 없는 이벤트 = 방향 센서에서 온 것이므로 무시
-        if (event.detail.accuracy !== undefined) {
-            isGPSLocating = false;
-        }
         currentLocation = event.detail;
         isHeadingActive = true;
     }
@@ -1150,6 +1145,7 @@
             on:searchresults={onSearchResults}
             on:headingupdate={onHeadingUpdate}
             on:headingstop={onHeadingStop}
+            on:gpsfixed={() => { isGPSLocating = false; }}
         />
 
         <!-- 저장 위치 FAB (로그인 + 나침반 활성 시) -->

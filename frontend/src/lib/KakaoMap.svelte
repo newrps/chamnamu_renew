@@ -195,9 +195,14 @@
             { enableHighAccuracy: false, maximumAge: 30000, timeout: 3000 }
         );
 
+        let gpsFixed = false; // 첫 GPS 수신 여부
         watchId = navigator.geolocation.watchPosition(
             (position) => {
-                locating.set(false); // GPS 위치 확보 → 로딩 종료
+                if (!gpsFixed) {
+                    gpsFixed = true;
+                    dispatch('gpsfixed'); // 첫 GPS 수신 알림
+                }
+                locating.set(false);
                 const lat = position.coords.latitude;
                 const lng = position.coords.longitude;
                 currentLat = lat;
