@@ -45,6 +45,7 @@
     }
 
     async function handleDeleteLocation(id: number) {
+        if (!confirm('저장된 위치를 삭제하시겠습니까?')) return;
         const ok = await deleteLocation(id);
         if (ok) {
             savedLocations = savedLocations.filter(l => l.id !== id);
