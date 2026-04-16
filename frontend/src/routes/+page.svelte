@@ -238,10 +238,7 @@
 
     // 헤딩 업데이트 이벤트 처리
     function onHeadingUpdate(event: CustomEvent<{ lat: number, lng: number, heading: number, accuracy: number }>) {
-        // 정확도 100m 이하일 때만 스피닝 종료 (watchPosition 정밀 GPS 확보 시점)
-        if (event.detail.accuracy <= 100) {
-            isGPSLocating = false;
-        }
+        isGPSLocating = false; // watchPosition 첫 콜백 = GPS 확보 완료
         currentLocation = event.detail;
         isHeadingActive = true;
     }
