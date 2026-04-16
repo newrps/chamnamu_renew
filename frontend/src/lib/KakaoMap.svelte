@@ -11,13 +11,13 @@
 
     // 스토어: 외부 함수에서 바꿔도 무조건 DOM 반응형 갱신됨
     const headingAngle = writable(0);
+    const locating = writable(false); // GPS 정밀 위치 탐색 중 여부
     let instantReset = false; // true일 때 transition 없이 즉시 0° 복귀
 
     const dispatch = createEventDispatcher();
     const VITE_API_BASE_URL: string = import.meta.env.VITE_API_BASE_URL;
 	const VITE_KAKAO_MAP_API_KEY: string = import.meta.env.VITE_KAKAO_MAP_API_KEY;
     let map: kakao.maps.Map;
-    let infowindow: kakao.maps.InfoWindow;
     let ps: kakao.maps.services.Places;
     let mapContainer: HTMLElement;
     let currentMarker: kakao.maps.Marker | null = null;
@@ -179,6 +179,8 @@
         // 나침반 방향 추적 시작
         startOrientationTracking();
 
+        locating.set(true);
+
         // 즉시 대략적인 위치로 이동 (네트워크 기반, 거의 즉시 응답)
         navigator.geolocation.getCurrentPosition(
             (position) => {
@@ -195,6 +197,7 @@
 
         watchId = navigator.geolocation.watchPosition(
             (position) => {
+                locating.set(false); // GPS 위치 확보 → 로딩 종료
                 const lat = position.coords.latitude;
                 const lng = position.coords.longitude;
                 currentLat = lat;
@@ -214,20 +217,21 @@
                     applyMapRotation(gpsHeading);
                 }
 
-                dispatch('headingupdate', { lat, lng, heading: currentHeading });
+                dispatch('headingupdate', { lat, lng, heading: currentHeading, accuracy: position.coords.accuracy });
             },
             (error) => {
                 console.error('위치 정보를 가져오는데 실패했습니다:', error);
                 alert('위치 정보를 가져올 수 없습니다.');
                 stopHeading();
             },
-            { enableHighAccuracy: true, maximumAge: 1000, timeout: 10000 }
+            { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
         );
     }
 
     // 헤딩 기능 중지
     export function stopHeading() {
         isHeadingActive = false;
+        locating.set(false);
 
         if (watchId !== null) {
             navigator.geolocation.clearWatch(watchId);
@@ -270,7 +274,6 @@
                 level: 3
             };
             map = new kakao.maps.Map(mapContainer, mapOption);
-            infowindow = new kakao.maps.InfoWindow({ zIndex: 1 });
             ps = new kakao.maps.services.Places();
 
             fetchAndDrawPolygons();
@@ -498,6 +501,20 @@
         <div bind:this={mapContainer} style="width:100%;height:100%;"></div>
     </div>
 
+    <!-- GPS 정밀 위치 탐색 중 로딩 표시 -->
+    {#if $locating}
+    <div style="position:absolute;bottom:80px;left:50%;transform:translateX(-50%);z-index:200;pointer-events:none;
+                display:flex;align-items:center;gap:8px;
+                background:rgba(0,0,0,0.65);color:white;
+                padding:8px 16px;border-radius:20px;font-size:13px;white-space:nowrap;">
+        <svg width="16" height="16" viewBox="0 0 16 16" style="flex-shrink:0;animation:spin 1s linear infinite;">
+            <circle cx="8" cy="8" r="6" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="2"/>
+            <path d="M8 2 A6 6 0 0 1 14 8" fill="none" stroke="white" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+        정확한 위치 찾는 중...
+    </div>
+    {/if}
+
     <!-- 현위치 + 방향 아이콘: 회전 div 밖 → 항상 보는 방향이 위 -->
     {#if isHeadingActive}
     <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-60%);z-index:100;pointer-events:none;will-change:transform;">
@@ -520,3 +537,10 @@
     {/if}
 
 </div>
+
+<style>
+    @keyframes spin {
+        from { transform: rotate(0deg); }
+        to   { transform: rotate(360deg); }
+    }
+</style>

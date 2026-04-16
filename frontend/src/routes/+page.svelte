@@ -11,6 +11,7 @@
     let showSearchResults = false;
 
     let isHeadingActive = false;
+    let isGPSLocating = false; // GPS 정밀 위치 탐색 중
     let currentLocation = { lat: 0, lng: 0, heading: 0 };
 
     // 로그인/위치 저장 관련
@@ -87,8 +88,14 @@
     }
 
     function openTmap(loc: SavedLocation) {
-        // tmap:// 앱 스킴으로 직접 실행 (goalX=경도, goalY=위도, WGS84 좌표계 명시)
-        window.open(`tmap://route?goalX=${loc.lng}&goalY=${loc.lat}&goalName=${encodeURIComponent(loc.name)}&reqCoordType=WGS84GEO`, '_blank');
+        // iOS와 Android 파라미터 이름이 다름
+        const name = encodeURIComponent(loc.name);
+        const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+        if (isIOS) {
+            window.open(`tmap://route?rGoName=${name}&rGoX=${loc.lng}&rGoY=${loc.lat}`, '_blank');
+        } else {
+            window.open(`tmap://route?goalname=${name}&goalx=${loc.lng}&goaly=${loc.lat}`, '_blank');
+        }
     }
 
     // 쿠키 유틸리티
@@ -220,15 +227,21 @@
         if (mapComponent) {
             if (isHeadingActive) {
                 mapComponent.stopHeading();
+                isGPSLocating = false;
             } else {
                 mapComponent.startHeading();
+                isGPSLocating = true; // GPS 잡을 때까지 스피닝
             }
         }
 
     }
 
     // 헤딩 업데이트 이벤트 처리
-    function onHeadingUpdate(event: CustomEvent<{ lat: number, lng: number, heading: number }>) {
+    function onHeadingUpdate(event: CustomEvent<{ lat: number, lng: number, heading: number, accuracy: number }>) {
+        // 정확도 100m 이하일 때만 스피닝 종료 (watchPosition 정밀 GPS 확보 시점)
+        if (event.detail.accuracy <= 100) {
+            isGPSLocating = false;
+        }
         currentLocation = event.detail;
         isHeadingActive = true;
     }
@@ -236,6 +249,7 @@
     // 헤딩 중지 이벤트 처리
     function onHeadingStop() {
         isHeadingActive = false;
+        isGPSLocating = false;
     }
 
     // 드래그 핸들 전용 이벤트 핸들러
@@ -544,7 +558,7 @@
 
     /* 나침반 floating 버튼 */
     .compass-fab {
-        position: absolute;
+        position: fixed;
         right: 12px;
         bottom: 80px;
         width: 48px;
@@ -571,6 +585,15 @@
         background: #1a73e8;
         color: white;
         box-shadow: 0 2px 12px rgba(26,115,232,0.5);
+    }
+
+    .compass-fab.locating {
+        animation: compass-spin 1s linear infinite;
+    }
+
+    @keyframes compass-spin {
+        from { transform: rotate(0deg); }
+        to   { transform: rotate(360deg); }
     }
 
     .search-results-list {
@@ -752,10 +775,6 @@
 /* 지도 영역 패딩 조금 더 확보(칩 + 배너) */
 .map-wrapper.with-ad { padding-bottom: 104px; }
 
-/* 광고 배너가 있을 때 FAB 버튼들 위로 올리기 (compass → locations → save 순으로 60px 간격) */
-.map-wrapper.with-ad .compass-fab       { bottom: 190px; }
-.map-wrapper.with-ad .locations-fab     { bottom: 250px; }
-.map-wrapper.with-ad .save-location-fab { bottom: 310px; }
 
 /* 모션 민감 사용자 배려 */
 @media (prefers-reduced-motion: reduce) {
@@ -847,7 +866,7 @@
 
 /* ── 저장 위치 FAB ────────────────────────────────────────── */
 .save-location-fab {
-    position: absolute;
+    position: fixed;
     right: 12px;
     bottom: 140px;
     width: 48px;
@@ -865,7 +884,7 @@
     transition: all 0.3s;
 }
 .locations-fab {
-    position: absolute;
+    position: fixed;
     right: 12px;
     bottom: 140px; /* 기본값: 나침반 위 (inline style로 덮어씀) */
     width: 48px;
@@ -884,7 +903,7 @@
 
 /* ── 위치 저장 폼 (지도 위) ──────────────────────────────── */
 .save-form-popup {
-    position: absolute;
+    position: fixed;
     right: 68px;
     bottom: 140px;
     background: white;
@@ -1145,7 +1164,7 @@
                     <button on:click={handleSaveLocation}>저장</button>
                 </div>
             {/if}
-            <button class="save-location-fab" on:click={() => showSaveForm = !showSaveForm} title="현재 위치 저장">
+            <button class="save-location-fab" style="bottom: {showAdBanner ? 310 : 140}px;" on:click={() => showSaveForm = !showSaveForm} title="현재 위치 저장">
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M17 3H5a2 2 0 00-2 2v14l7-3 7 3V5a2 2 0 00-2-2z"/>
                 </svg>
@@ -1163,7 +1182,8 @@
 
         <!-- 나침반 floating 버튼 -->
         <button
-            class="compass-fab {isHeadingActive ? 'active' : ''}"
+            class="compass-fab {isHeadingActive ? 'active' : ''} {isGPSLocating ? 'locating' : ''}"
+            style="bottom: {showAdBanner ? 190 : 80}px;"
             on:click={toggleHeading}
             title={isHeadingActive ? '북쪽 추적 중지' : '북쪽 찾기'}
         >
