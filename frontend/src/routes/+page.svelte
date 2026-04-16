@@ -87,8 +87,8 @@
     }
 
     function openTmap(loc: SavedLocation) {
-        // 앱 설치 시 앱으로, 미설치 시 웹으로 자동 처리
-        window.open(`https://tmap.life/map?lat=${loc.lat}&lng=${loc.lng}&name=${encodeURIComponent(loc.name)}`, '_blank');
+        // tmap:// 앱 스킴으로 직접 실행 (goalX=경도, goalY=위도, WGS84 좌표계 명시)
+        window.open(`tmap://route?goalX=${loc.lng}&goalY=${loc.lat}&goalName=${encodeURIComponent(loc.name)}&reqCoordType=WGS84GEO`, '_blank');
     }
 
     // 쿠키 유틸리티
@@ -203,33 +203,6 @@
         }
     }
 
-    // 현재 위치로 이동
-    function goToCurrentLocation() {
-        // 헤딩 기능이 켜져 있으면 끄기
-        if (isHeadingActive && mapComponent) {
-            mapComponent.stopHeading();
-        }
-
-        if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(
-                (position) => {
-                    const lat = position.coords.latitude;
-                    const lng = position.coords.longitude;
-                    if (mapComponent) {
-                        mapComponent.setCenter(lat, lng);
-                    }
-                },
-                (error) => {
-                    alert('현재 위치를 가져올 수 없습니다.');
-                    console.error(error);
-                }
-            );
-        } else {
-            alert('이 브라우저에서는 위치 서비스를 지원하지 않습니다.');
-        }
-
-    }
-
     // 헤딩 기능 토글
     async function toggleHeading() {
         // iOS 13+: DeviceOrientation 권한은 사용자 gesture에서 직접 호출해야 함
@@ -316,12 +289,6 @@
         document.removeEventListener('touchmove', handleDragMove);
         document.removeEventListener('mousemove', handleDragMove);
     }
-
-    // 레거시 함수들 (사용하지 않음)
-    function handleTouchStart() {}
-    function handleTouchMove() {}
-    function handleTouchEnd() {}
-    function handleMouseDown() {}
 
     // 전체 스크롤 방지
     function preventBodyScroll() {
