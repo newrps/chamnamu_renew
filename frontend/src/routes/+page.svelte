@@ -237,8 +237,12 @@
     }
 
     // 헤딩 업데이트 이벤트 처리
-    function onHeadingUpdate(event: CustomEvent<{ lat: number, lng: number, heading: number, accuracy: number }>) {
-        isGPSLocating = false; // watchPosition 첫 콜백 = GPS 확보 완료
+    function onHeadingUpdate(event: CustomEvent<{ lat: number, lng: number, heading: number, accuracy?: number }>) {
+        // accuracy가 있는 이벤트 = watchPosition(GPS)에서 온 것만 스피닝 종료
+        // accuracy가 없는 이벤트 = 방향 센서에서 온 것이므로 무시
+        if (event.detail.accuracy !== undefined) {
+            isGPSLocating = false;
+        }
         currentLocation = event.detail;
         isHeadingActive = true;
     }
