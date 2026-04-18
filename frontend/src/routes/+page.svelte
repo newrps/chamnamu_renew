@@ -16,6 +16,14 @@
     let currentLocation = { lat: 0, lng: 0, heading: 0 };
 
     let showCollectingPanel = false;
+    let forecastLat = 0;
+    let forecastLng = 0;
+
+    // GPS 좌표가 생기면 예보 위치 초기값으로 사용
+    $: if (forecastLat === 0 && currentLocation.lat !== 0) {
+        forecastLat = currentLocation.lat;
+        forecastLng = currentLocation.lng;
+    }
     let polygonFetchFailed = false;
     let polygonRetryTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -205,6 +213,8 @@
         if (mapComponent) {
             mapComponent.setCenter(result.y, result.x);
         }
+        forecastLat = Number(result.y);
+        forecastLng = Number(result.x);
         showSearchResults = false;
 
     }
@@ -1273,8 +1283,8 @@
         <!-- 채집 예보 패널 -->
         <CollectingForecast
             show={showCollectingPanel}
-            lat={currentLocation.lat}
-            lng={currentLocation.lng}
+            lat={forecastLat}
+            lng={forecastLng}
             adHeight={showAdBanner ? 104 : 0}
         />
 

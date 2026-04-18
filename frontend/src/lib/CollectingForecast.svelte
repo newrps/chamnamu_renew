@@ -32,6 +32,8 @@
     let loadError = false;
     let fetched = false;
     let locationName = '';
+    let lastFetchedLat = 0;
+    let lastFetchedLng = 0;
 
     $: selected = hours[selectedIdx] ?? null;
 
@@ -213,8 +215,17 @@
     // 패널이 열릴 때마다 아직 로드 안 됐으면 로드
     $: if (show && !fetched && !loading) tryLoad();
 
-    // GPS 좌표가 들어오면 (나침반 켰을 때) 로드
-    $: if (lat !== 0 && lng !== 0 && !fetched && !loading) loadForecast(lat, lng);
+    // 좌표가 바뀌면 (검색 등) 재조회
+    $: if (lat !== 0 && lng !== 0 && !loading) {
+        const moved = Math.abs(lat - lastFetchedLat) + Math.abs(lng - lastFetchedLng) > 0.01;
+        if (moved) {
+            lastFetchedLat = lat;
+            lastFetchedLng = lng;
+            fetched = false;
+            locationName = '';
+            loadForecast(lat, lng);
+        }
+    }
 </script>
 
 {#if show}
