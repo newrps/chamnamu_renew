@@ -9,9 +9,13 @@
 
     // ── 드래그로 닫기 ─────────────────────────────────────────────────────────
     let dragStartY = 0;
+    let dragY = 0;
+    let isDragging = false;
 
     function onDragStart(e: TouchEvent | MouseEvent) {
         dragStartY = e instanceof TouchEvent ? e.touches[0].clientY : e.clientY;
+        isDragging = true;
+        dragY = 0;
         document.addEventListener('touchmove', onDragMove, { passive: true });
         document.addEventListener('touchend', onDragEnd, { once: true });
         document.addEventListener('mousemove', onDragMove);
@@ -20,15 +24,19 @@
 
     function onDragMove(e: TouchEvent | MouseEvent) {
         const y = e instanceof TouchEvent ? e.touches[0].clientY : e.clientY;
-        if (y - dragStartY > 60) {
-            dispatch('close');
-            onDragEnd();
-        }
+        dragY = Math.max(0, y - dragStartY); // 아래 방향만
     }
 
     function onDragEnd() {
+        isDragging = false;
         document.removeEventListener('touchmove', onDragMove);
         document.removeEventListener('mousemove', onDragMove);
+        if (dragY > 80) {
+            dragY = window.innerHeight; // 화면 아래로 날려서 닫힘
+            setTimeout(() => { dispatch('close'); dragY = 0; }, 280);
+        } else {
+            dragY = 0; // 제자리로 복귀
+        }
     }
 
     interface HourData {
@@ -256,14 +264,19 @@
 
 {#if show}
 <div class="cf-backdrop" on:click={() => dispatch('close')} role="presentation"></div>
-<div class="cf-panel" style="padding-bottom: {adHeight + 36}px">
-    <div class="cf-drag-bar"
+<div
+    class="cf-panel {isDragging ? 'dragging' : ''}"
+    style="padding-bottom: {adHeight + 36}px; transform: translateY({dragY}px)"
+>
+    <div class="cf-drag-handle"
         on:touchstart={onDragStart}
         on:mousedown={onDragStart}
         role="button"
         tabindex="-1"
         aria-label="패널 닫기"
-    ></div>
+    >
+        <div class="cf-drag-bar"></div>
+    </div>
 
     <div class="cf-title">
         🪲 오늘 밤 채집 예보
@@ -352,18 +365,28 @@
         -webkit-backdrop-filter: blur(20px);
         border-radius: 20px 20px 0 0;
         z-index: 1100;
-        padding: 14px 0 36px;
+        padding: 0 0 36px;
         color: #fff;
+        transition: transform 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+        will-change: transform;
+    }
+    .cf-panel.dragging {
+        transition: none;
     }
 
+    /* 터치 히트 영역은 넓게, 시각적 막대는 얇게 */
+    .cf-drag-handle {
+        padding: 14px 0 10px;
+        cursor: grab;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        user-select: none;
+    }
     .cf-drag-bar {
         width: 36px; height: 4px;
         background: rgba(255,255,255,0.25);
         border-radius: 2px;
-        margin: 0 auto 14px;
-        cursor: grab;
-        padding: 12px 20px;
-        box-sizing: content-block;
     }
 
     .cf-title {
