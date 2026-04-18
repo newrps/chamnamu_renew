@@ -1,5 +1,6 @@
 <script lang="ts">
     import KakaoMap from '$lib/KakaoMap.svelte';
+    import CollectingForecast from '$lib/CollectingForecast.svelte';
     import { onMount } from 'svelte';
     import { authUser, initAuth, logout, saveLocation, fetchLocations, deleteLocation } from '$lib/auth';
     import type { SavedLocation } from '$lib/auth';
@@ -14,6 +15,7 @@
     let isGPSLocating = false; // GPS 정밀 위치 탐색 중
     let currentLocation = { lat: 0, lng: 0, heading: 0 };
 
+    let showCollectingPanel = false;
     let polygonFetchFailed = false;
     let polygonRetryTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -575,6 +577,27 @@
     }
 
     /* 나침반 floating 버튼 */
+    .collecting-fab {
+        position: fixed;
+        left: 16px;
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        border: none;
+        background: white;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        font-size: 22px;
+        cursor: pointer;
+        z-index: 100;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: background 0.2s;
+    }
+    .collecting-fab.active {
+        background: #1b5e20;
+    }
+
     .compass-fab {
         position: fixed;
         right: 12px;
@@ -1227,6 +1250,14 @@
             </button>
         {/if}
 
+        <!-- 채집 예보 FAB -->
+        <button
+            class="collecting-fab {showCollectingPanel ? 'active' : ''}"
+            style="bottom: {showAdBanner ? 190 : 80}px;"
+            on:click={() => showCollectingPanel = !showCollectingPanel}
+            title="채집 예보"
+        >🪲</button>
+
         <!-- 나침반 floating 버튼 -->
         <button
             class="compass-fab {isHeadingActive ? 'active' : ''} {isGPSLocating ? 'locating' : ''}"
@@ -1238,6 +1269,13 @@
                 <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-5.5-2.5l7.51-3.49L17.5 6.5 9.99 9.99 6.5 17.5zm5.5-6.6c.61 0 1.1.49 1.1 1.1s-.49 1.1-1.1 1.1-1.1-.49-1.1-1.1.49-1.1 1.1-1.1z"/>
             </svg>
         </button>
+
+        <!-- 채집 예보 패널 -->
+        <CollectingForecast
+            show={showCollectingPanel}
+            lat={currentLocation.lat}
+            lng={currentLocation.lng}
+        />
 
         <!-- 참나무 지도 로드 실패 토스트 -->
         {#if polygonFetchFailed}

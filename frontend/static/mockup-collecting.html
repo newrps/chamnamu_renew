@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>채집 예보 목업</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Noto Sans KR', sans-serif;
+    background: #2d5a27;
+    display: flex;
+    justify-content: center;
+    align-items: flex-end;
+    min-height: 100vh;
+    padding: 0;
+  }
+
+  /* 지도 배경 흉내 */
+  .map-bg {
+    position: fixed; inset: 0;
+    background: linear-gradient(135deg, #3a6b35 0%, #2d5a27 40%, #1e3d1a 100%);
+    z-index: 0;
+  }
+  .map-bg::after {
+    content: '🗺️ 지도 영역';
+    position: absolute; top: 40%; left: 50%;
+    transform: translate(-50%, -50%);
+    color: rgba(255,255,255,0.2);
+    font-size: 18px;
+  }
+
+  /* FAB 버튼 */
+  .fab-area {
+    position: fixed;
+    right: 16px;
+    bottom: 90px;
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .fab {
+    width: 48px; height: 48px;
+    border-radius: 50%;
+    border: none;
+    background: white;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.25);
+    font-size: 22px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .fab.active {
+    background: #1b5e20;
+    color: white;
+  }
+
+  /* 채집 예보 패널 */
+  .panel {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    background: rgba(15, 15, 15, 0.93);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-radius: 20px 20px 0 0;
+    z-index: 200;
+    padding: 16px 0 32px;
+    color: white;
+    transform: translateY(0);
+    transition: transform 0.3s ease;
+  }
+  .panel.hidden { transform: translateY(100%); }
+
+  .drag-bar {
+    width: 36px; height: 4px;
+    background: rgba(255,255,255,0.3);
+    border-radius: 2px;
+    margin: 0 auto 14px;
+  }
+
+  .panel-title {
+    font-size: 15px;
+    font-weight: 700;
+    padding: 0 16px 10px;
+    color: rgba(255,255,255,0.9);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .panel-title span.sub {
+    font-size: 12px;
+    font-weight: 400;
+    color: rgba(255,255,255,0.45);
+  }
+
+  /* 달 + 요약 */
+  .moon-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    margin: 0 16px 12px;
+    background: rgba(255,255,255,0.07);
+    border-radius: 14px;
+  }
+  .moon-emoji { font-size: 32px; }
+  .moon-info { flex: 1; }
+  .moon-name { font-size: 14px; font-weight: 600; }
+  .moon-desc { font-size: 11px; color: rgba(255,255,255,0.5); margin-top: 2px; }
+  .moon-badge {
+    background: #1b5e20;
+    color: #a5d6a7;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 20px;
+  }
+
+  /* 시간별 카드 스크롤 */
+  .time-scroll {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding: 4px 16px 8px;
+    scrollbar-width: none;
+  }
+  .time-scroll::-webkit-scrollbar { display: none; }
+
+  .time-card {
+    flex-shrink: 0;
+    width: 72px;
+    background: rgba(255,255,255,0.08);
+    border-radius: 16px;
+    padding: 12px 8px;
+    text-align: center;
+    border: 1.5px solid transparent;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .time-card.best {
+    background: rgba(27, 94, 32, 0.5);
+    border-color: #4caf50;
+  }
+  .time-card.selected {
+    border-color: rgba(255,255,255,0.5);
+  }
+  .time-card:active { transform: scale(0.96); }
+
+  .tc-time { font-size: 12px; font-weight: 700; color: rgba(255,255,255,0.7); }
+  .tc-weather { font-size: 22px; margin: 6px 0 4px; }
+  .tc-temp { font-size: 13px; font-weight: 600; }
+  .tc-stars {
+    font-size: 9px;
+    color: #ffd54f;
+    margin-top: 5px;
+    letter-spacing: -1px;
+  }
+  .tc-label {
+    font-size: 10px;
+    margin-top: 4px;
+    font-weight: 600;
+  }
+  .label-best { color: #81c784; }
+  .label-good { color: #aed581; }
+  .label-ok   { color: #fff176; }
+  .label-bad  { color: #ef9a9a; }
+
+  /* 상세 조건 */
+  .detail-box {
+    margin: 8px 16px 0;
+    background: rgba(255,255,255,0.06);
+    border-radius: 14px;
+    padding: 12px 14px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .detail-chip {
+    background: rgba(255,255,255,0.1);
+    border-radius: 20px;
+    padding: 5px 12px;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .detail-chip .val { font-weight: 700; }
+  .chip-good .val { color: #81c784; }
+  .chip-bad  .val { color: #ef9a9a; }
+</style>
+</head>
+<body>
+
+<div class="map-bg"></div>
+
+<!-- FAB 버튼들 -->
+<div class="fab-area">
+  <button class="fab" title="나침반">🧭</button>
+  <button class="fab active" onclick="togglePanel()" title="채집 예보">🪲</button>
+</div>
+
+<!-- 채집 예보 패널 -->
+<div class="panel" id="panel">
+  <div class="drag-bar"></div>
+
+  <div class="panel-title">
+    🪲 오늘 밤 채집 예보
+    <span class="sub">2025.07.15 · 현재 위치 기준</span>
+  </div>
+
+  <!-- 달 정보 -->
+  <div class="moon-row">
+    <div class="moon-emoji">🌑</div>
+    <div class="moon-info">
+      <div class="moon-name">그믐달 (삭)</div>
+      <div class="moon-desc">달빛이 거의 없어 채집에 유리합니다</div>
+    </div>
+    <div class="moon-badge">달 ★★★★★</div>
+  </div>
+
+  <!-- 시간별 카드 -->
+  <div class="time-scroll">
+
+    <div class="time-card" onclick="select(this)">
+      <div class="tc-time">18시</div>
+      <div class="tc-weather">🌤️</div>
+      <div class="tc-temp">28°C</div>
+      <div class="tc-stars">★★★☆☆</div>
+      <div class="tc-label label-ok">보통</div>
+    </div>
+
+    <div class="time-card" onclick="select(this)">
+      <div class="tc-time">19시</div>
+      <div class="tc-weather">🌤️</div>
+      <div class="tc-temp">26°C</div>
+      <div class="tc-stars">★★★★☆</div>
+      <div class="tc-label label-good">좋음</div>
+    </div>
+
+    <div class="time-card best selected" onclick="select(this)">
+      <div class="tc-time">21시</div>
+      <div class="tc-weather">🌙</div>
+      <div class="tc-temp">24°C</div>
+      <div class="tc-stars">★★★★★</div>
+      <div class="tc-label label-best">최적!</div>
+    </div>
+
+    <div class="time-card" onclick="select(this)">
+      <div class="tc-time">22시</div>
+      <div class="tc-weather">🌙</div>
+      <div class="tc-temp">23°C</div>
+      <div class="tc-stars">★★★★☆</div>
+      <div class="tc-label label-good">좋음</div>
+    </div>
+
+    <div class="time-card" onclick="select(this)">
+      <div class="tc-time">23시</div>
+      <div class="tc-weather">☁️</div>
+      <div class="tc-temp">22°C</div>
+      <div class="tc-stars">★★★☆☆</div>
+      <div class="tc-label label-ok">보통</div>
+    </div>
+
+    <div class="time-card" onclick="select(this)">
+      <div class="tc-time">00시</div>
+      <div class="tc-weather">🌧️</div>
+      <div class="tc-temp">21°C</div>
+      <div class="tc-stars">★☆☆☆☆</div>
+      <div class="tc-label label-bad">나쁨</div>
+    </div>
+
+    <div class="time-card" onclick="select(this)">
+      <div class="tc-time">01시</div>
+      <div class="tc-weather">🌧️</div>
+      <div class="tc-temp">20°C</div>
+      <div class="tc-stars">★☆☆☆☆</div>
+      <div class="tc-label label-bad">나쁨</div>
+    </div>
+
+    <div class="time-card" onclick="select(this)">
+      <div class="tc-time">02시</div>
+      <div class="tc-weather">🌦️</div>
+      <div class="tc-temp">20°C</div>
+      <div class="tc-stars">★★☆☆☆</div>
+      <div class="tc-label label-bad">나쁨</div>
+    </div>
+
+  </div>
+
+  <!-- 선택된 시간 상세 -->
+  <div class="detail-box">
+    <div class="detail-chip chip-good">🌡️ 기온 <span class="val">24°C</span></div>
+    <div class="detail-chip chip-good">🌙 달빛 <span class="val">없음</span></div>
+    <div class="detail-chip chip-good">💨 바람 <span class="val">1.2m/s</span></div>
+    <div class="detail-chip chip-good">🌤️ 날씨 <span class="val">맑음</span></div>
+    <div class="detail-chip chip-good">💧 강수 <span class="val">0mm</span></div>
+  </div>
+
+</div>
+
+<script>
+  function togglePanel() {
+    document.getElementById('panel').classList.toggle('hidden');
+  }
+  function select(el) {
+    document.querySelectorAll('.time-card').forEach(c => c.classList.remove('selected'));
+    el.classList.add('selected');
+  }
+</script>
+</body>
+</html>
