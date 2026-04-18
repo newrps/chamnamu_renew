@@ -1,9 +1,9 @@
 <script lang="ts">
-    import { onMount } from 'svelte';
 
     export let show: boolean = false;
     export let lat: number = 0;
     export let lng: number = 0;
+    export let adHeight: number = 0;
 
     interface HourData {
         hour: number;
@@ -198,7 +198,7 @@
 </script>
 
 {#if show}
-<div class="cf-panel">
+<div class="cf-panel" style="padding-bottom: {adHeight + 36}px">
     <div class="cf-drag-bar"></div>
 
     <div class="cf-title">
@@ -277,7 +277,7 @@
         backdrop-filter: blur(20px);
         -webkit-backdrop-filter: blur(20px);
         border-radius: 20px 20px 0 0;
-        z-index: 250;
+        z-index: 1100;
         padding: 14px 0 36px;
         color: #fff;
     }

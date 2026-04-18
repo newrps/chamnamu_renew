@@ -1275,6 +1275,7 @@
             show={showCollectingPanel}
             lat={currentLocation.lat}
             lng={currentLocation.lng}
+            adHeight={showAdBanner ? 104 : 0}
         />
 
         <!-- 참나무 지도 로드 실패 토스트 -->
