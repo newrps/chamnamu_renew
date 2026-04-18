@@ -31,6 +31,7 @@
     let loading = false;
     let loadError = false;
     let fetched = false;
+    let locationName = '';
 
     $: selected = hours[selectedIdx] ?? null;
 
@@ -102,17 +103,36 @@
     }
 
     // ── Open-Meteo 날씨 로드 ──────────────────────────────────────────────────
+    async function fetchLocationName(userLat: number, userLng: number) {
+        try {
+            const url = `https://nominatim.openstreetmap.org/reverse?lat=${userLat}&lon=${userLng}&format=json&accept-language=ko`;
+            const res = await fetch(url, { headers: { 'Accept-Language': 'ko' } });
+            if (!res.ok) return;
+            const data = await res.json();
+            const a = data.address ?? {};
+            // 시/도 + 시/군/구 조합
+            const parts = [
+                a.city ?? a.county ?? a.province ?? a.state,
+                a.suburb ?? a.borough ?? a.neighbourhood ?? a.town ?? a.village,
+            ].filter(Boolean);
+            locationName = parts.slice(0, 2).join(' ');
+        } catch { /* 위치명 없어도 예보는 표시 */ }
+    }
+
     async function loadForecast(userLat: number, userLng: number) {
         loading = true;
         loadError = false;
         try {
-            const url =
-                `https://api.open-meteo.com/v1/forecast` +
-                `?latitude=${userLat.toFixed(4)}&longitude=${userLng.toFixed(4)}` +
-                `&hourly=temperature_2m,precipitation,weathercode,windspeed_10m` +
-                `&timezone=Asia%2FSeoul&forecast_days=2`;
-
-            const res = await fetch(url);
+            const [weatherRes] = await Promise.all([
+                fetch(
+                    `https://api.open-meteo.com/v1/forecast` +
+                    `?latitude=${userLat.toFixed(4)}&longitude=${userLng.toFixed(4)}` +
+                    `&hourly=temperature_2m,precipitation,weathercode,windspeed_10m` +
+                    `&timezone=Asia%2FSeoul&forecast_days=2`
+                ),
+                fetchLocationName(userLat, userLng),
+            ]);
+            const res = weatherRes;
             if (!res.ok) throw new Error('HTTP error');
             const data = await res.json();
 
@@ -203,7 +223,10 @@
 
     <div class="cf-title">
         🪲 오늘 밤 채집 예보
-        <span class="cf-sub">{new Date().toLocaleDateString('ko-KR', { month: 'long', day: 'numeric' })} · GPS 기준</span>
+        <span class="cf-sub">
+            {new Date().toLocaleDateString('ko-KR', { month: 'long', day: 'numeric' })}
+            {#if locationName} · 📍 {locationName}{/if}
+        </span>
     </div>
 
     {#if loading}
