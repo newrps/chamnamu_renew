@@ -1286,7 +1286,7 @@
             lat={forecastLat}
             lng={forecastLng}
             adHeight={showAdBanner ? 104 : 0}
-            on:close={() => showCollectingPanel = false}
+            onclose={() => showCollectingPanel = false}
         />
 
         <!-- 참나무 지도 로드 실패 토스트 -->

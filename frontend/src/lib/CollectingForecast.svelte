@@ -1,11 +1,9 @@
 <script lang="ts">
-    import { createEventDispatcher } from 'svelte';
-    const dispatch = createEventDispatcher();
-
     export let show: boolean = false;
     export let lat: number = 0;
     export let lng: number = 0;
     export let adHeight: number = 0;
+    export let onclose: (() => void) | undefined = undefined;
 
     // ── 드래그로 닫기 ─────────────────────────────────────────────────────────
     let dragStartY = 0;
@@ -33,7 +31,7 @@
         document.removeEventListener('mousemove', onDragMove);
         if (dragY > 80) {
             dragY = window.innerHeight; // 화면 아래로 날려서 닫힘
-            setTimeout(() => { dispatch('close'); dragY = 0; }, 280);
+            setTimeout(() => { onclose?.(); dragY = 0; }, 280);
         } else {
             dragY = 0; // 제자리로 복귀
         }
@@ -182,17 +180,20 @@
             moonDesc   = mi.desc;
             moonStars  = '★'.repeat(mi.score) + '☆'.repeat(5 - mi.score);
 
-            // 오늘 18~23시 + 내일 0~2시
+            // 현재 시간부터 24시간
             const todayStr    = now.toISOString().slice(0, 10);
             const tomorrow    = new Date(now);
             tomorrow.setDate(tomorrow.getDate() + 1);
             const tomorrowStr = tomorrow.toISOString().slice(0, 10);
 
-            const targets = [18, 19, 20, 21, 22, 23, 0, 1, 2];
+            const currentHour = now.getHours();
             const result: HourData[] = [];
 
-            for (const h of targets) {
-                const dateStr = h >= 18 ? todayStr : tomorrowStr;
+            for (let i = 0; i < 24; i++) {
+                const totalH  = currentHour + i;
+                const h       = totalH % 24;
+                const nextDay = totalH >= 24;
+                const dateStr = nextDay ? tomorrowStr : todayStr;
                 const timeStr = `${dateStr}T${String(h).padStart(2, '0')}:00`;
                 const idx = (data.hourly.time as string[]).indexOf(timeStr);
                 if (idx === -1) continue;
@@ -208,7 +209,7 @@
 
                 result.push({
                     hour: h,
-                    label: `${h}시`,
+                    label: nextDay && h === 0 ? '자정' : `${h}시`,
                     temp, precip,
                     windspeed: windMs,
                     weatherCode: code,
@@ -263,7 +264,7 @@
 </script>
 
 {#if show}
-<div class="cf-backdrop" on:click={() => dispatch('close')} role="presentation"></div>
+<div class="cf-backdrop" on:click={() => onclose?.()} role="presentation"></div>
 <div
     class="cf-panel {isDragging ? 'dragging' : ''}"
     style="padding-bottom: {adHeight + 36}px; transform: translateY({dragY}px)"
