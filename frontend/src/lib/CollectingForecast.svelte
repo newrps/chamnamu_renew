@@ -1,9 +1,35 @@
 <script lang="ts">
+    import { createEventDispatcher } from 'svelte';
+    const dispatch = createEventDispatcher();
 
     export let show: boolean = false;
     export let lat: number = 0;
     export let lng: number = 0;
     export let adHeight: number = 0;
+
+    // ── 드래그로 닫기 ─────────────────────────────────────────────────────────
+    let dragStartY = 0;
+
+    function onDragStart(e: TouchEvent | MouseEvent) {
+        dragStartY = e instanceof TouchEvent ? e.touches[0].clientY : e.clientY;
+        document.addEventListener('touchmove', onDragMove, { passive: true });
+        document.addEventListener('touchend', onDragEnd, { once: true });
+        document.addEventListener('mousemove', onDragMove);
+        document.addEventListener('mouseup', onDragEnd, { once: true });
+    }
+
+    function onDragMove(e: TouchEvent | MouseEvent) {
+        const y = e instanceof TouchEvent ? e.touches[0].clientY : e.clientY;
+        if (y - dragStartY > 60) {
+            dispatch('close');
+            onDragEnd();
+        }
+    }
+
+    function onDragEnd() {
+        document.removeEventListener('touchmove', onDragMove);
+        document.removeEventListener('mousemove', onDragMove);
+    }
 
     interface HourData {
         hour: number;
@@ -229,8 +255,15 @@
 </script>
 
 {#if show}
+<div class="cf-backdrop" on:click={() => dispatch('close')} role="presentation"></div>
 <div class="cf-panel" style="padding-bottom: {adHeight + 36}px">
-    <div class="cf-drag-bar"></div>
+    <div class="cf-drag-bar"
+        on:touchstart={onDragStart}
+        on:mousedown={onDragStart}
+        role="button"
+        tabindex="-1"
+        aria-label="패널 닫기"
+    ></div>
 
     <div class="cf-title">
         🪲 오늘 밤 채집 예보
@@ -304,6 +337,13 @@
 {/if}
 
 <style>
+    .cf-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 1099;
+        background: transparent;
+    }
+
     .cf-panel {
         position: fixed;
         bottom: 0; left: 0; right: 0;
@@ -321,6 +361,9 @@
         background: rgba(255,255,255,0.25);
         border-radius: 2px;
         margin: 0 auto 14px;
+        cursor: grab;
+        padding: 12px 20px;
+        box-sizing: content-block;
     }
 
     .cf-title {
