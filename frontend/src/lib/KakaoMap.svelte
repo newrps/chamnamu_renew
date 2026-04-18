@@ -46,26 +46,19 @@
     let fetchAbortController: AbortController | null = null; // 진행 중인 fetch 취소용
 
 
-    function parseMultiPolygonWKT(wkt: string): kakao.maps.LatLng[][] {
-        if (!wkt || !wkt.includes('MULTIPOLYGON')) {
-            console.error('유효하지 않은 MULTIPOLYGON WKT 문자열입니다.');
-            return [];
+    function parseGeoJSON(geometry: any): kakao.maps.LatLng[][] {
+        if (!geometry) return [];
+        const paths: kakao.maps.LatLng[][] = [];
+        if (geometry.type === 'MultiPolygon') {
+            for (const polygon of geometry.coordinates) {
+                const ring: [number, number][] = polygon[0]; // 외곽 링만 사용
+                paths.push(ring.map(([lng, lat]) => new kakao.maps.LatLng(lat, lng)));
+            }
+        } else if (geometry.type === 'Polygon') {
+            const ring: [number, number][] = geometry.coordinates[0];
+            paths.push(ring.map(([lng, lat]) => new kakao.maps.LatLng(lat, lng)));
         }
-
-        const content = wkt.substring(wkt.indexOf('(((') + 3, wkt.lastIndexOf(')))'));
-        const polygonStrings = content.split(')),((');
-
-        const polygons = polygonStrings.map(polyStr => {
-            const rings = polyStr.split('),(');
-            const outerRing = rings[0];
-            const coords = outerRing.split(',').map(coord => {
-                const [x, y] = coord.trim().split(' ').map(Number);
-                return new kakao.maps.LatLng(y, x);
-            });
-            return coords;
-        });
-
-        return polygons;
+        return paths;
     }
 
     // 지도를 보는 방향으로 회전 — store.set()은 어떤 컨텍스트에서도 DOM을 갱신함
@@ -353,16 +346,16 @@
             const incomingIds = new Set<string>();
 
             data.forEach((item: any) => {
-                const key = String(item.id ?? item.wkb_geometry);
+                const key = String(item.id);
                 incomingIds.add(key);
 
                 // 이미 그려진 폴리곤은 건너뜀
                 if (drawnPolygons.has(key)) return;
 
                 // 새로운 영역만 그리기
-                const paths = parseMultiPolygonWKT(item.wkb_geometry);
+                const paths = parseGeoJSON(item.geometry);
                 const newPolys: kakao.maps.Polygon[] = [];
-                paths.forEach(path => {
+                paths.forEach((path: kakao.maps.LatLng[]) => {
                     if (path.length > 0) {
                         const polygon = new kakao.maps.Polygon({
                             path,

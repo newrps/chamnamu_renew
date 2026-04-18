@@ -133,10 +133,8 @@ pub async fn delete_location(
 // API 응답으로 보낼 데이터의 구조체입니다.
 #[derive(Serialize, Deserialize, Debug)]
 pub struct MapData {
-    pub ogc_fid: i32,
-    pub wkb_geometry: Option<String>,
-    pub write_year: Option<String>,
-    pub agcls_cd: Option<String>,
+    pub id: i32,
+    pub geometry: serde_json::Value,
 }
 
 // POST 요청으로 받을 데이터의 구조체입니다.
@@ -151,16 +149,15 @@ pub struct CreateChamnamuData {
 pub async fn get_all_polygon_data(pool: web::Data<Pool>) -> Result<Vec<MapData>, Error> {
     let client: Client = pool.get().await.map_err(ErrorInternalServerError)?;
 
-    let rows = client.query("SELECT ogc_fid, ST_AsText(ST_Transform(wkb_geometry, 4326)), 갱신년도, agcls_cd FROM chamnamu_tree", &[])
+    let rows = client.query("SELECT ogc_fid, ST_AsGeoJSON(ST_Transform(wkb_geometry, 4326), 6) FROM chamnamu_tree", &[])
         .await
         .map_err(ErrorInternalServerError)?;
-        
+
     let map_data_list: Vec<MapData> = rows.iter().map(|row| {
+        let geom_str: String = row.get(1);
         MapData {
-            ogc_fid: row.get(0),
-            wkb_geometry: row.get(1),
-            write_year: row.get(2),
-            agcls_cd: row.get(3),
+            id: row.get(0),
+            geometry: serde_json::from_str(&geom_str).unwrap_or(serde_json::Value::Null),
         }
     }).collect();
     
@@ -192,7 +189,7 @@ pub async fn create_new_chamnamu_data(pool: web::Data<Pool>, new_data: CreateCha
 pub async fn get_nearby_polygon_data(pool: web::Data<Pool>, lng: f64, lat:f64, distance: f64) -> Result<Vec<MapData>, Error> {
     let client: Client = pool.get().await.map_err(ErrorInternalServerError)?;
     let query = r#"
-        SELECT ogc_fid, ST_AsText(ST_Transform(wkb_geometry, 4326)), 갱신년도, agcls_cd
+        SELECT ogc_fid, ST_AsGeoJSON(ST_Transform(wkb_geometry, 4326), 6)
         FROM chamnamu_tree
         WHERE ST_DWithin(
             wkb_geometry,
@@ -206,11 +203,10 @@ pub async fn get_nearby_polygon_data(pool: web::Data<Pool>, lng: f64, lat:f64, d
         .map_err(ErrorInternalServerError)?;
 
     let map_data_list: Vec<MapData> = rows.iter().map(|row| {
+        let geom_str: String = row.get(1);
         MapData {
-            ogc_fid: row.get(0),
-            wkb_geometry: row.get(1),
-            write_year: row.get(2),
-            agcls_cd: row.get(3),
+            id: row.get(0),
+            geometry: serde_json::from_str(&geom_str).unwrap_or(serde_json::Value::Null),
         }
     }).collect();
 

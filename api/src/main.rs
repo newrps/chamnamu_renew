@@ -1,4 +1,4 @@
-use actix_web::{delete, get, post, web, App, HttpRequest, HttpResponse, HttpServer, Result, error::ErrorBadRequest};
+use actix_web::{delete, get, middleware::Compress, post, web, App, HttpRequest, HttpResponse, HttpServer, Result, error::ErrorBadRequest};
 use deadpool_postgres::{Pool, Manager};
 use tokio_postgres::NoTls;
 use dotenvy::dotenv;
@@ -153,6 +153,7 @@ async fn main() -> std::io::Result<()> {
             .max_age(3600);
 
         App::new()
+            .wrap(Compress::default())
             .wrap(cors)
             .app_data(web::Data::new(pool.clone()))
             .app_data(ad_cache_data.clone())
