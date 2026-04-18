@@ -14,6 +14,21 @@
     let isGPSLocating = false; // GPS 정밀 위치 탐색 중
     let currentLocation = { lat: 0, lng: 0, heading: 0 };
 
+    let polygonFetchFailed = false;
+    let polygonRetryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    function onPolygonFetchError() {
+        polygonFetchFailed = true;
+        if (polygonRetryTimer) clearTimeout(polygonRetryTimer);
+        polygonRetryTimer = setTimeout(() => { polygonFetchFailed = false; }, 8000);
+    }
+
+    function retryPolygons() {
+        polygonFetchFailed = false;
+        if (polygonRetryTimer) clearTimeout(polygonRetryTimer);
+        if (mapComponent) mapComponent.retryFetchPolygons();
+    }
+
     // 로그인/위치 저장 관련
     let showLoginModal = false;
     let showLocationsPanel = false;
@@ -689,6 +704,33 @@
         padding-bottom: 60px;
     }
 
+    .polygon-error-toast {
+        position: fixed;
+        bottom: 100px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 16px;
+        background: rgba(30, 30, 30, 0.88);
+        color: #fff;
+        border-radius: 24px;
+        font-size: 14px;
+        z-index: 500;
+        pointer-events: auto;
+        white-space: nowrap;
+    }
+    .polygon-error-toast button {
+        background: #2196f3;
+        color: #fff;
+        border: none;
+        border-radius: 14px;
+        padding: 4px 12px;
+        font-size: 13px;
+        cursor: pointer;
+    }
+
     /* 컨테이너: 하단 고정 & 내부 요소만 클릭 가능하도록 */
 .ad-banner-container {
   position: fixed;
@@ -1153,6 +1195,7 @@
             on:headingupdate={onHeadingUpdate}
             on:headingstop={onHeadingStop}
             on:gpsfixed={() => { isGPSLocating = false; }}
+            on:fetcherror={onPolygonFetchError}
         />
 
         <!-- 저장 위치 FAB (로그인 + 나침반 활성 시) -->
@@ -1195,6 +1238,14 @@
                 <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-5.5-2.5l7.51-3.49L17.5 6.5 9.99 9.99 6.5 17.5zm5.5-6.6c.61 0 1.1.49 1.1 1.1s-.49 1.1-1.1 1.1-1.1-.49-1.1-1.1.49-1.1 1.1-1.1z"/>
             </svg>
         </button>
+
+        <!-- 참나무 지도 로드 실패 토스트 -->
+        {#if polygonFetchFailed}
+            <div class="polygon-error-toast">
+                <span>참나무 지도 로드 실패</span>
+                <button on:click={retryPolygons}>재시도</button>
+            </div>
+        {/if}
 
         <div
             class="search-container {isHidden ? 'hidden' : ''}"

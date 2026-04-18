@@ -325,7 +325,8 @@
         // 이전 요청이 진행 중이면 취소 (경쟁 조건 방지)
         if (fetchAbortController) fetchAbortController.abort();
         fetchAbortController = new AbortController();
-        const signal = fetchAbortController.signal;
+        const thisController = fetchAbortController;
+        const signal = thisController.signal;
 
         const center = map.getCenter();
         const lng = center.getLng();
@@ -333,8 +334,15 @@
         const distance = getViewportRadius();
         const apiUrl = `${VITE_API_BASE_URL}/api/polygon/nearby?lng=${lng}&lat=${lat}&distance=${distance}`;
 
+        let timedOut = false;
+        const timeoutId = setTimeout(() => {
+            timedOut = true;
+            thisController.abort();
+        }, 10000);
+
         try {
             const response = await fetch(apiUrl, { signal });
+            clearTimeout(timeoutId);
             if (!response.ok) throw new Error(`HTTP 오류! 상태: ${response.status}`);
             const data = await response.json();
 
@@ -379,10 +387,18 @@
                 }
             }
         } catch (error: any) {
-            if (error?.name !== 'AbortError') {
-                console.error('폴리곤 데이터를 불러오는 데 실패했습니다:', error);
+            clearTimeout(timeoutId);
+            if (error?.name === 'AbortError' && !timedOut) {
+                // 새 요청으로 인한 취소 — 정상
+                return;
             }
+            console.error('폴리곤 데이터를 불러오는 데 실패했습니다:', error);
+            dispatch('fetcherror');
         }
+    }
+
+    export function retryFetchPolygons() {
+        fetchAndDrawPolygons();
     }
 
     // 좌표 → 주소 변환 (역지오코딩)
