@@ -64,6 +64,7 @@
     let loadError = false;
     let fetched = false;
     let locationName = '';
+    let locationErrorMsg = '위치를 가져오지 못했습니다.\nGPS 신호를 확인하거나 나침반을 먼저 켜보세요.';
     let lastFetchedLat = 0;
     let lastFetchedLng = 0;
     let showMoonCalendar = false;
@@ -283,10 +284,19 @@
             await loadForecast(lat, lng);
         } else {
             if (!navigator.geolocation) { loadError = true; return; }
+            loading = true; // GPS 응답 대기 중에도 로딩 표시
             navigator.geolocation.getCurrentPosition(
                 pos => loadForecast(pos.coords.latitude, pos.coords.longitude),
-                ()  => { loadError = true; },
-                { enableHighAccuracy: false, timeout: 6000 }
+                (err) => {
+                    loading = false;
+                    loadError = true;
+                    if (err.code === err.PERMISSION_DENIED) {
+                        locationErrorMsg = '위치 권한이 거부됐습니다.\n브라우저 설정에서 위치 접근을 허용해 주세요.';
+                    } else {
+                        locationErrorMsg = '위치를 가져오지 못했습니다.\nGPS 신호를 확인하거나 나침반을 먼저 켜보세요.';
+                    }
+                },
+                { enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 }
             );
         }
     }
@@ -336,8 +346,8 @@
 
     {:else if loadError}
         <div class="cf-loading">
-            위치 정보를 불러올 수 없습니다
-            <button class="cf-retry" on:click={() => { fetched = false; tryLoad(); }}>재시도</button>
+            <span style="white-space: pre-line; text-align: center;">{locationErrorMsg}</span>
+            <button class="cf-retry" on:click={() => { loadError = false; fetched = false; tryLoad(); }}>재시도</button>
         </div>
 
     {:else if hours.length > 0}
