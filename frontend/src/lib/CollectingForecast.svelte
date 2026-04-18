@@ -66,8 +66,52 @@
     let locationName = '';
     let lastFetchedLat = 0;
     let lastFetchedLng = 0;
+    let showMoonCalendar = false;
 
     $: selected = hours[selectedIdx] ?? null;
+
+    // ── 달력 데이터 (30일) ────────────────────────────────────────────────────
+    interface DayData {
+        date: Date;
+        dateLabel: string;
+        dayLabel: string;
+        emoji: string;
+        name: string;
+        ratio: number;
+        moonScore: number;
+    }
+
+    function buildMoonCalendar(): DayData[] {
+        const today = new Date();
+        today.setHours(20, 0, 0, 0); // 저녁 8시 기준
+        const month = today.getMonth() + 1;
+        const days: DayData[] = [];
+        const weekDays = ['일', '월', '화', '수', '목', '금', '토'];
+
+        for (let i = 0; i < 30; i++) {
+            const d = new Date(today);
+            d.setDate(d.getDate() + i);
+            const ratio = calcMoonPhase(d);
+            const mi = moonInfo(ratio);
+            const dist = Math.min(ratio, 1 - ratio);
+            const mScore = Math.max(1, Math.min(5, Math.round((1 - dist * 2) * 5)));
+            const seasonBonus = (month >= 6 && month <= 8) ? 1 : (month === 5 || month === 9) ? 0.5 : 0;
+            const total = Math.min(5, mScore + seasonBonus);
+
+            days.push({
+                date: d,
+                dateLabel: `${d.getMonth() + 1}/${d.getDate()}`,
+                dayLabel: weekDays[d.getDay()],
+                emoji: mi.emoji,
+                name: mi.name,
+                ratio,
+                moonScore: Math.round(total),
+            });
+        }
+        return days;
+    }
+
+    $: calendarDays = showMoonCalendar ? buildMoonCalendar() : [];
 
     // ── 달 위상 계산 (수식, API 불필요) ──────────────────────────────────────
     function calcMoonPhase(date: Date): number {
@@ -297,51 +341,73 @@
         </div>
 
     {:else if hours.length > 0}
-        <!-- 달 정보 -->
-        <div class="cf-moon">
-            <span class="cf-moon-emoji">{moonEmoji}</span>
-            <div class="cf-moon-text">
-                <div class="cf-moon-name">{moonName}</div>
-                <div class="cf-moon-desc">{moonDesc}</div>
+        {#if showMoonCalendar}
+            <!-- ── 한달 달 달력 ── -->
+            <div class="cf-cal-header">
+                <button class="cf-cal-back" on:click={() => showMoonCalendar = false}>← 예보로</button>
+                <span>30일 달 달력</span>
             </div>
-            <div class="cf-moon-stars">{moonStars}</div>
-        </div>
-
-        <!-- 시간별 카드 -->
-        <div class="cf-scroll">
-            {#each hours as h, i}
-                <button
-                    class="cf-card {h.scoreCls} {i === selectedIdx ? 'sel' : ''}"
-                    on:click={() => selectedIdx = i}
-                >
-                    <div class="cf-card-time">{h.label}</div>
-                    <div class="cf-card-wx">{h.weatherEmoji}</div>
-                    <div class="cf-card-temp">{h.temp}°</div>
-                    <div class="cf-card-stars">{h.stars}</div>
-                    <div class="cf-card-label {h.scoreCls}">{h.scoreLabel}</div>
-                </button>
-            {/each}
-        </div>
-
-        <!-- 선택된 시간 상세 -->
-        {#if selected}
-            <div class="cf-detail">
-                <div class="cf-chip {selected.temp >= 22 && selected.temp <= 27 ? 'g' : selected.temp < 18 ? 'b' : ''}">
-                    🌡️ <span>{selected.temp}°C</span>
-                </div>
-                <div class="cf-chip {selected.precip === 0 ? 'g' : 'b'}">
-                    {selected.weatherEmoji} <span>{selected.weatherLabel}</span>
-                </div>
-                <div class="cf-chip {selected.windspeed <= 3 ? 'g' : selected.windspeed <= 6 ? '' : 'b'}">
-                    💨 <span>{selected.windspeed.toFixed(1)}m/s</span>
-                </div>
-                <div class="cf-chip {selected.precip === 0 ? 'g' : 'b'}">
-                    💧 <span>{selected.precip.toFixed(1)}mm</span>
-                </div>
-                <div class="cf-chip {moonRatio < 0.25 || moonRatio > 0.75 ? 'g' : moonRatio > 0.35 && moonRatio < 0.65 ? 'b' : ''}">
-                    {moonEmoji} <span>{moonName}</span>
-                </div>
+            <div class="cf-cal-list">
+                {#each calendarDays as d, i}
+                    <div class="cf-cal-row {i === 0 ? 'today' : ''}">
+                        <span class="cf-cal-date">{d.dateLabel}<span class="cf-cal-day">{d.dayLabel}</span></span>
+                        <span class="cf-cal-emoji">{d.emoji}</span>
+                        <span class="cf-cal-name">{d.name}</span>
+                        <span class="cf-cal-stars score-{d.moonScore}">{'★'.repeat(d.moonScore)}{'☆'.repeat(5 - d.moonScore)}</span>
+                    </div>
+                {/each}
             </div>
+
+        {:else}
+            <!-- ── 달 정보 (클릭하면 달력) ── -->
+            <button class="cf-moon" on:click={() => showMoonCalendar = true} title="한달 달력 보기">
+                <span class="cf-moon-emoji">{moonEmoji}</span>
+                <div class="cf-moon-text">
+                    <div class="cf-moon-name">{moonName}</div>
+                    <div class="cf-moon-desc">{moonDesc}</div>
+                </div>
+                <div class="cf-moon-right">
+                    <div class="cf-moon-stars">{moonStars}</div>
+                    <div class="cf-moon-hint">달력 →</div>
+                </div>
+            </button>
+
+            <!-- 시간별 카드 -->
+            <div class="cf-scroll">
+                {#each hours as h, i}
+                    <button
+                        class="cf-card {h.scoreCls} {i === selectedIdx ? 'sel' : ''}"
+                        on:click={() => selectedIdx = i}
+                    >
+                        <div class="cf-card-time">{h.label}</div>
+                        <div class="cf-card-wx">{h.weatherEmoji}</div>
+                        <div class="cf-card-temp">{h.temp}°</div>
+                        <div class="cf-card-stars">{h.stars}</div>
+                        <div class="cf-card-label {h.scoreCls}">{h.scoreLabel}</div>
+                    </button>
+                {/each}
+            </div>
+
+            <!-- 선택된 시간 상세 -->
+            {#if selected}
+                <div class="cf-detail">
+                    <div class="cf-chip {selected.temp >= 22 && selected.temp <= 27 ? 'g' : selected.temp < 18 ? 'b' : ''}">
+                        🌡️ <span>{selected.temp}°C</span>
+                    </div>
+                    <div class="cf-chip {selected.precip === 0 ? 'g' : 'b'}">
+                        {selected.weatherEmoji} <span>{selected.weatherLabel}</span>
+                    </div>
+                    <div class="cf-chip {selected.windspeed <= 3 ? 'g' : selected.windspeed <= 6 ? '' : 'b'}">
+                        💨 <span>{selected.windspeed.toFixed(1)}m/s</span>
+                    </div>
+                    <div class="cf-chip {selected.precip === 0 ? 'g' : 'b'}">
+                        💧 <span>{selected.precip.toFixed(1)}mm</span>
+                    </div>
+                    <div class="cf-chip {moonRatio < 0.25 || moonRatio > 0.75 ? 'g' : moonRatio > 0.35 && moonRatio < 0.65 ? 'b' : ''}">
+                        {moonEmoji} <span>{moonName}</span>
+                    </div>
+                </div>
+            {/if}
         {/if}
 
     {:else}
@@ -413,12 +479,72 @@
         background: rgba(255,255,255,0.07);
         border-radius: 14px;
         padding: 10px 14px;
+        border: none;
+        color: #fff;
+        font-family: inherit;
+        text-align: left;
+        cursor: pointer;
+        width: calc(100% - 32px);
+        transition: background 0.15s;
     }
+    .cf-moon:active { background: rgba(255,255,255,0.13); }
     .cf-moon-emoji { font-size: 30px; flex-shrink: 0; }
     .cf-moon-text  { flex: 1; }
     .cf-moon-name  { font-size: 13px; font-weight: 600; }
     .cf-moon-desc  { font-size: 11px; color: rgba(255,255,255,0.5); margin-top: 2px; }
-    .cf-moon-stars { font-size: 11px; color: #ffd54f; flex-shrink: 0; }
+    .cf-moon-right { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; flex-shrink: 0; }
+    .cf-moon-stars { font-size: 11px; color: #ffd54f; }
+    .cf-moon-hint  { font-size: 10px; color: rgba(255,255,255,0.35); }
+
+    /* 달력 */
+    .cf-cal-header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 0 16px 10px;
+        font-size: 14px;
+        font-weight: 700;
+    }
+    .cf-cal-back {
+        background: rgba(255,255,255,0.1);
+        border: none;
+        color: #fff;
+        border-radius: 20px;
+        padding: 4px 12px;
+        font-size: 12px;
+        cursor: pointer;
+        font-family: inherit;
+    }
+    .cf-cal-list {
+        overflow-y: auto;
+        max-height: 52vh;
+        padding: 0 16px 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+    .cf-cal-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 7px 12px;
+        border-radius: 10px;
+        background: rgba(255,255,255,0.05);
+    }
+    .cf-cal-row.today {
+        background: rgba(27,94,32,0.4);
+        border: 1px solid rgba(76,175,80,0.4);
+    }
+    .cf-cal-date { font-size: 13px; font-weight: 600; min-width: 42px; }
+    .cf-cal-day  { font-size: 10px; color: rgba(255,255,255,0.45); margin-left: 4px; }
+    .cf-cal-emoji { font-size: 20px; min-width: 28px; text-align: center; }
+    .cf-cal-name { font-size: 12px; color: rgba(255,255,255,0.7); flex: 1; }
+    .cf-cal-stars { font-size: 10px; letter-spacing: -1px; }
+    .score-5 { color: #81c784; }
+    .score-4 { color: #aed581; }
+    .score-3 { color: #fff176; }
+    .score-2 { color: #ffb74d; }
+    .score-1 { color: #ef9a9a; }
 
     /* 시간별 스크롤 */
     .cf-scroll {

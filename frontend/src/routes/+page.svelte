@@ -272,6 +272,9 @@
     function onHeadingUpdate(event: CustomEvent<{ lat: number, lng: number, heading: number, accuracy?: number }>) {
         currentLocation = event.detail;
         isHeadingActive = true;
+        // 나침반 켜면 예보 위치도 현재 GPS 위치로 업데이트
+        forecastLat = event.detail.lat;
+        forecastLng = event.detail.lng;
     }
 
     // 헤딩 중지 이벤트 처리
