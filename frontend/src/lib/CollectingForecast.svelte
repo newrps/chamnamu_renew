@@ -82,16 +82,16 @@
         moonScore: number;
     }
 
-    function buildMoonCalendar(): DayData[] {
+    function buildMoonCalendar(numDays = 30): DayData[] {
         const today = new Date();
-        today.setHours(20, 0, 0, 0); // 저녁 8시 기준
-        const month = today.getMonth() + 1;
-        const days: DayData[] = [];
+        today.setHours(20, 0, 0, 0);
         const weekDays = ['일', '월', '화', '수', '목', '금', '토'];
+        const days: DayData[] = [];
 
-        for (let i = 0; i < 30; i++) {
+        for (let i = 0; i < numDays; i++) {
             const d = new Date(today);
             d.setDate(d.getDate() + i);
+            const month = d.getMonth() + 1;
             const ratio = calcMoonPhase(d);
             const mi = moonInfo(ratio);
             const dist = Math.min(ratio, 1 - ratio);
@@ -112,14 +112,34 @@
         return days;
     }
 
-    $: calendarDays = showMoonCalendar ? buildMoonCalendar() : [];
+    function onCalendarScroll(e: Event) {
+        const el = e.target as HTMLElement;
+        if (el.scrollHeight - el.scrollTop - el.clientHeight < 60) {
+            const next = calendarDays.length + 30;
+            if (next <= 365) calendarDays = buildMoonCalendar(next);
+        }
+    }
+
+    let calendarDays: DayData[] = [];
+    $: if (showMoonCalendar && calendarDays.length === 0) calendarDays = buildMoonCalendar(30);
 
     // ── 달 위상 계산 (수식, API 불필요) ──────────────────────────────────────
     function calcMoonPhase(date: Date): number {
-        const knownNewMoon = new Date('2000-01-06T18:14:00Z');
-        const period = 29.53059;
-        const days = (date.getTime() - knownNewMoon.getTime()) / 86400000;
-        return ((days % period) + period) % period / period; // 0~1
+        const jd = date.getTime() / 86400000 + 2440587.5;
+        const T = (jd - 2451545.0) / 36525.0;
+        const rad = Math.PI / 180;
+        const D  = ((297.85036 + 445267.111480 * T - 0.0019142 * T * T) % 360 + 360) % 360;
+        const M  = ((357.52772 +  35999.050340 * T - 0.0001603 * T * T) % 360 + 360) % 360;
+        const Mp = ((134.96298 + 477198.867398 * T + 0.0086972 * T * T) % 360 + 360) % 360;
+        // 교란항 보정으로 실제 신월/보름 시각을 약 2시간 오차까지 줄임 (d5.co.kr 기준 일치)
+        const Dc = D
+            + 6.289 * Math.sin(Mp * rad)
+            - 2.100 * Math.sin(M  * rad)
+            + 1.274 * Math.sin((2 * D - Mp) * rad)
+            + 0.658 * Math.sin(2 * D  * rad)
+            + 0.214 * Math.sin(2 * Mp * rad)
+            + 0.110 * Math.sin(D  * rad);
+        return ((Dc % 360) + 360) % 360 / 360;
     }
 
     function moonInfo(ratio: number) {
@@ -127,13 +147,14 @@
         const score = Math.max(1, Math.min(5, Math.round((1 - dist * 2) * 5)));
 
         let emoji: string, name: string, desc: string;
-        if (ratio < 0.067 || ratio > 0.933)  { emoji='🌑'; name='삭(그믐)';  desc='달빛 없음 — 채집 최적'; }
-        else if (ratio < 0.183)               { emoji='🌒'; name='초승달';    desc='달빛 매우 약함 — 매우 좋음'; }
-        else if (ratio < 0.317)               { emoji='🌓'; name='상현달';    desc='달빛 약함 — 좋음'; }
-        else if (ratio < 0.433)               { emoji='🌔'; name='보름 직전'; desc='달빛 밝아짐 — 보통'; }
-        else if (ratio < 0.567)               { emoji='🌕'; name='보름달';    desc='달빛 밝음 — 채집에 불리'; }
-        else if (ratio < 0.683)               { emoji='🌖'; name='보름 직후'; desc='달빛 밝아짐 — 보통'; }
-        else if (ratio < 0.817)               { emoji='🌗'; name='하현달';    desc='달빛 약함 — 좋음'; }
+        // 상현/보름/하현/삭 은 1일 ±6° 좁은 띠, 사이는 긴 구간 (d5.co.kr 방식)
+        if (ratio < 0.017 || ratio > 0.983)  { emoji='🌑'; name='삭(그믐)';  desc='달빛 없음 — 채집 최적'; }
+        else if (ratio < 0.233)               { emoji='🌒'; name='초승달';    desc='달빛 매우 약함 — 매우 좋음'; }
+        else if (ratio < 0.267)               { emoji='🌓'; name='상현달';    desc='달빛 약함 — 좋음'; }
+        else if (ratio < 0.483)               { emoji='🌔'; name='보름 직전'; desc='달빛 밝아짐 — 보통'; }
+        else if (ratio < 0.517)               { emoji='🌕'; name='보름달';    desc='달빛 밝음 — 채집에 불리'; }
+        else if (ratio < 0.733)               { emoji='🌖'; name='보름 직후'; desc='달빛 밝아짐 — 보통'; }
+        else if (ratio < 0.767)               { emoji='🌗'; name='하현달';    desc='달빛 약함 — 좋음'; }
         else                                  { emoji='🌘'; name='그믐달';    desc='달빛 거의 없음 — 매우 좋음'; }
 
         return { emoji, name, desc, score };
@@ -304,8 +325,8 @@
     // 패널이 열릴 때마다 아직 로드 안 됐으면 로드
     $: if (show && !fetched && !loading) tryLoad();
 
-    // 좌표가 바뀌면 (검색 등) 재조회
-    $: if (lat !== 0 && lng !== 0 && !loading) {
+    // 좌표가 바뀌면 재조회 (패널이 열려 있을 때만, 닫혀 있으면 다음 오픈 때 tryLoad가 처리)
+    $: if (show && lat !== 0 && lng !== 0 && !loading) {
         const moved = Math.abs(lat - lastFetchedLat) + Math.abs(lng - lastFetchedLng) > 0.01;
         if (moved) {
             lastFetchedLat = lat;
@@ -321,7 +342,7 @@
 <div class="cf-backdrop" on:click={() => onclose?.()} role="presentation"></div>
 <div
     class="cf-panel {isDragging ? 'dragging' : ''}"
-    style="padding-bottom: {adHeight + 36}px; transform: translateY({dragY}px)"
+    style="padding-bottom: {adHeight + 16}px; transform: translateY({dragY}px)"
 >
     <div class="cf-drag-handle"
         on:touchstart={onDragStart}
@@ -357,7 +378,7 @@
                 <button class="cf-cal-back" on:click={() => showMoonCalendar = false}>← 예보로</button>
                 <span>30일 달 달력</span>
             </div>
-            <div class="cf-cal-list">
+            <div class="cf-cal-list" on:scroll={onCalendarScroll}>
                 {#each calendarDays as d, i}
                     <div class="cf-cal-row {i === 0 ? 'today' : ''}">
                         <span class="cf-cal-date">{d.dateLabel}<span class="cf-cal-day">{d.dayLabel}</span></span>
@@ -600,7 +621,7 @@
         display: flex;
         flex-wrap: wrap;
         gap: 7px;
-        margin: 4px 16px 0;
+        margin: 4px 16px 8px;
     }
     .cf-chip {
         background: rgba(255,255,255,0.09);
