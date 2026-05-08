@@ -162,8 +162,8 @@
 
     // ── 날씨 코드 → 이모지/이름 ───────────────────────────────────────────────
     function weatherInfo(code: number): { emoji: string; label: string } {
-        if (code === 0)           return { emoji: '🌙', label: '맑음' };
-        if (code <= 3)            return { emoji: '🌙', label: '구름조금' };
+        if (code === 0)           return { emoji: '☀️', label: '맑음' };
+        if (code <= 3)            return { emoji: '🌤️', label: '구름조금' };
         if (code <= 48)           return { emoji: '🌫️', label: '안개' };
         if (code <= 57)           return { emoji: '🌦️', label: '이슬비' };
         if (code <= 67)           return { emoji: '🌧️', label: '비' };
