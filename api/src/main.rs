@@ -34,7 +34,8 @@ async fn get_nearby_data(
 #[get("/api/ads")]
 async fn get_ads(cache: web::Data<AdCache>) -> HttpResponse {
     let ads = cache.read().await;
-    HttpResponse::Ok().json(ads.clone())
+    // 가드를 직렬화 동안만 잡고, Vec 자체는 클론하지 않음 (메모리 사용량 ↓)
+    HttpResponse::Ok().json(&*ads)
 }
 
 // ── 저장 위치 API ─────────────────────────────────────────────────────────────
@@ -123,13 +124,17 @@ async fn main() -> std::io::Result<()> {
 
     let ad_cache: AdCache = Arc::new(RwLock::new(vec![]));
 
+    // reqwest::Client는 앱 전체에서 1개를 공유 (Connection pool/DNS/TLS 세션 재사용 → 메모리 안정)
+    let http_client = reqwest::Client::new();
+
     if !access_key.is_empty() {
-        let ads = coupang::fetch_ads(&access_key, &secret_key, &keywords).await;
+        let ads = coupang::fetch_ads(&http_client, &access_key, &secret_key, &keywords).await;
         println!("초기 광고 {}개 로드 완료", ads.len());
         *ad_cache.write().await = ads;
     }
 
     let cache_clone = ad_cache.clone();
+    let http_bg = http_client.clone(); // Client 내부가 Arc라 clone은 cheap
     let ak = access_key.clone();
     let sk = secret_key.clone();
     let kw = keywords.clone();
@@ -137,13 +142,14 @@ async fn main() -> std::io::Result<()> {
         if ak.is_empty() { return; }
         loop {
             tokio::time::sleep(tokio::time::Duration::from_secs(3600)).await;
-            let ads = coupang::fetch_ads(&ak, &sk, &kw).await;
+            let ads = coupang::fetch_ads(&http_bg, &ak, &sk, &kw).await;
             println!("광고 갱신 완료: {}개", ads.len());
             *cache_clone.write().await = ads;
         }
     });
 
     let ad_cache_data = web::Data::new(ad_cache);
+    let http_data = web::Data::new(http_client);
 
     HttpServer::new(move || {
         let cors = Cors::default()
@@ -157,6 +163,7 @@ async fn main() -> std::io::Result<()> {
             .wrap(cors)
             .app_data(web::Data::new(pool.clone()))
             .app_data(ad_cache_data.clone())
+            .app_data(http_data.clone())
             // 폴리곤
             .service(get_nearby_data)
             // 광고

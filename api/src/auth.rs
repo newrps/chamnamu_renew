@@ -3,6 +3,7 @@ use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::env;
+use std::sync::OnceLock;
 
 // ── JWT ──────────────────────────────────────────────────────────────────────
 
@@ -13,17 +14,26 @@ pub struct Claims {
     pub exp: usize,
 }
 
+// JWT 시크릿은 시작 시 한 번만 읽고 재사용 (env::var + String alloc 반복 제거)
+static JWT_SECRET: OnceLock<Vec<u8>> = OnceLock::new();
+
+fn jwt_secret() -> &'static [u8] {
+    JWT_SECRET.get_or_init(|| {
+        env::var("JWT_SECRET")
+            .unwrap_or_else(|_| "chamnamu_secret_key_2024".to_string())
+            .into_bytes()
+    })
+}
+
 pub fn create_jwt(user_id: i32, nickname: &str) -> String {
-    let secret = env::var("JWT_SECRET").unwrap_or_else(|_| "chamnamu_secret_key_2024".to_string());
     let exp = (chrono::Utc::now() + chrono::Duration::days(30)).timestamp() as usize;
     let claims = Claims { sub: user_id, nickname: nickname.to_string(), exp };
-    encode(&Header::default(), &claims, &EncodingKey::from_secret(secret.as_bytes()))
+    encode(&Header::default(), &claims, &EncodingKey::from_secret(jwt_secret()))
         .unwrap_or_default()
 }
 
 pub fn verify_jwt(token: &str) -> Option<Claims> {
-    let secret = env::var("JWT_SECRET").unwrap_or_else(|_| "chamnamu_secret_key_2024".to_string());
-    decode::<Claims>(token, &DecodingKey::from_secret(secret.as_bytes()), &Validation::new(Algorithm::HS256))
+    decode::<Claims>(token, &DecodingKey::from_secret(jwt_secret()), &Validation::new(Algorithm::HS256))
         .map(|d| d.claims)
         .ok()
 }
@@ -89,6 +99,7 @@ struct GoogleUserInfo {
 pub async fn google_callback(
     query: web::Query<CallbackQuery>,
     pool: web::Data<deadpool_postgres::Pool>,
+    http: web::Data<Client>,
 ) -> HttpResponse {
     if let Some(err) = &query.error {
         return redirect_error(err);
@@ -101,8 +112,6 @@ pub async fn google_callback(
     let client_id = env::var("GOOGLE_CLIENT_ID").unwrap_or_default();
     let client_secret = env::var("GOOGLE_CLIENT_SECRET").unwrap_or_default();
     let redirect_uri = format!("{}/api/auth/callback/google", app_base_url());
-
-    let http = Client::new();
 
     // 토큰 교환
     let token_res: GoogleTokenRes = match http.post("https://oauth2.googleapis.com/token")
@@ -183,6 +192,7 @@ struct NaverUserInfo {
 pub async fn naver_callback(
     query: web::Query<CallbackQuery>,
     pool: web::Data<deadpool_postgres::Pool>,
+    http: web::Data<Client>,
 ) -> HttpResponse {
     if let Some(err) = &query.error {
         return redirect_error(err);
@@ -195,8 +205,6 @@ pub async fn naver_callback(
     let client_id = env::var("NAVER_CLIENT_ID").unwrap_or_default();
     let client_secret = env::var("NAVER_CLIENT_SECRET").unwrap_or_default();
     let redirect_uri = format!("{}/api/auth/callback/naver", app_base_url());
-
-    let http = Client::new();
 
     let token_res: NaverTokenRes = match http
         .post("https://nid.naver.com/oauth2.0/token")
@@ -283,6 +291,7 @@ struct KakaoProfile {
 pub async fn kakao_callback(
     query: web::Query<CallbackQuery>,
     pool: web::Data<deadpool_postgres::Pool>,
+    http: web::Data<Client>,
 ) -> HttpResponse {
     if let Some(err) = &query.error {
         return redirect_error(err);
@@ -295,8 +304,6 @@ pub async fn kakao_callback(
     let client_id = env::var("KAKAO_CLIENT_ID").unwrap_or_default();
     let client_secret = env::var("KAKAO_CLIENT_SECRET").unwrap_or_default();
     let redirect_uri = format!("{}/api/auth/callback/kakao", app_base_url());
-
-    let http = Client::new();
 
     let mut params = vec![
         ("grant_type", "authorization_code"),

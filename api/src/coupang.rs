@@ -49,11 +49,11 @@ fn format_price(price: i64) -> String {
 }
 
 pub async fn fetch_ads(
+    client: &Client,
     access_key: &str,
     secret_key: &str,
     keywords: &[String],
 ) -> Vec<AdItem> {
-    let client = Client::new();
     let mut all_ads = Vec::new();
     let mut color_idx = 0;
 
