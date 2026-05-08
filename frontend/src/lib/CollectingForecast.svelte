@@ -1,4 +1,6 @@
 <script lang="ts">
+    import { fetchForecastRaw } from '$lib/forecastCache';
+
     export let show: boolean = false;
     export let lat: number = 0;
     export let lng: number = 0;
@@ -223,18 +225,16 @@
         loading = true;
         loadError = false;
         try {
-            const [weatherRes] = await Promise.all([
-                fetch(
-                    `https://api.open-meteo.com/v1/forecast` +
-                    `?latitude=${userLat.toFixed(4)}&longitude=${userLng.toFixed(4)}` +
-                    `&hourly=temperature_2m,precipitation,weathercode,windspeed_10m` +
-                    `&timezone=Asia%2FSeoul&forecast_days=2`
-                ),
-                fetchLocationName(userLat, userLng),
-            ]);
-            const res = weatherRes;
-            if (!res.ok) throw new Error('HTTP error');
-            const data = await res.json();
+            // Nominatim 역지오코딩은 fire-and-forget — 도착하면 reactive 로 제목에 자동 반영.
+            // (Promise.all 로 같이 기다리던 걸 빼서 평균 1~3초 단축)
+            fetchLocationName(userLat, userLng);
+
+            // 캐시 우선 (prefetch 됐으면 즉시 반환).
+            const data = await fetchForecastRaw(userLat, userLng) as
+                | { hourly: { time: string[]; temperature_2m: number[]; precipitation: number[];
+                              weathercode: number[]; windspeed_10m: number[] } }
+                | null;
+            if (!data) throw new Error('weather fetch failed');
 
             const now = new Date();
             const month = now.getMonth() + 1;

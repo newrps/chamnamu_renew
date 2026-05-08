@@ -3,6 +3,7 @@
     import CollectingForecast from '$lib/CollectingForecast.svelte';
     import { onMount } from 'svelte';
     import { authUser, initAuth, logout, saveLocation, fetchLocations, deleteLocation } from '$lib/auth';
+    import { prefetchForecast } from '$lib/forecastCache';
     import type { SavedLocation } from '$lib/auth';
 
     let mapComponent: KakaoMap;
@@ -23,6 +24,15 @@
     $: if (forecastLat === 0 && currentLocation.lat !== 0) {
         forecastLat = currentLocation.lat;
         forecastLng = currentLocation.lng;
+    }
+
+    // 예보 좌표 잡히면 백그라운드로 미리 fetch (캐시에만 저장).
+    // 사용자가 패널 열 때 즉시 표시 가능. idle 시점에 호출해 폴리곤 렌더 등 메인 작업 방해 안 함.
+    $: if (typeof window !== 'undefined' && forecastLat !== 0 && forecastLng !== 0) {
+        const ric: (cb: () => void) => void =
+            (window as any).requestIdleCallback ?? ((cb) => setTimeout(cb, 200));
+        const lat = forecastLat, lng = forecastLng;
+        ric(() => prefetchForecast(lat, lng));
     }
     let polygonFetchFailed = false;
     let polygonRetryTimer: ReturnType<typeof setTimeout> | null = null;
