@@ -23,6 +23,7 @@
     let currentMarker: kakao.maps.Marker | null = null;
     // id → 해당 영역의 폴리곤 목록 (이미 그려진 것 추적)
     let drawnPolygons = new Map<string, kakao.maps.Polygon[]>();
+    let polygonsFetchedOnce = false; // 첫 폴리곤 fetch 성공 시 부모에 신호 (prefetch 트리거용)
     
     // 헤딩 기능 관련 변수들
     let isHeadingActive = false;
@@ -378,6 +379,12 @@
                     polys.forEach(p => p.setMap(null));
                     drawnPolygons.delete(key);
                 }
+            }
+
+            // 첫 fetch 성공 시점 — 부모가 forecast prefetch 트리거에 사용
+            if (!polygonsFetchedOnce) {
+                polygonsFetchedOnce = true;
+                dispatch('polygonsfetched');
             }
         } catch (error: any) {
             clearTimeout(timeoutId);

@@ -26,13 +26,15 @@
         forecastLng = currentLocation.lng;
     }
 
-    // 예보 좌표 잡히면 백그라운드로 미리 fetch (캐시에만 저장).
-    // 사용자가 패널 열 때 즉시 표시 가능. idle 시점에 호출해 폴리곤 렌더 등 메인 작업 방해 안 함.
-    $: if (typeof window !== 'undefined' && forecastLat !== 0 && forecastLng !== 0) {
-        const ric: (cb: () => void) => void =
-            (window as any).requestIdleCallback ?? ((cb) => setTimeout(cb, 200));
-        const lat = forecastLat, lng = forecastLng;
-        ric(() => prefetchForecast(lat, lng));
+    // 지도·폴리곤 로드 완료 후 백그라운드 forecast prefetch.
+    // KakaoMap 의 polygonsfetched 이벤트로 신호 받음. (5초 내 못 받으면 안전망 강제 발동)
+    let polygonsReady = false;
+    onMount(() => {
+        setTimeout(() => { polygonsReady = true; }, 5000);
+    });
+
+    $: if (polygonsReady && forecastLat !== 0 && forecastLng !== 0) {
+        prefetchForecast(forecastLat, forecastLng);
     }
     let polygonFetchFailed = false;
     let polygonRetryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1242,6 +1244,7 @@
             on:headingstop={onHeadingStop}
             on:gpsfixed={() => { isGPSLocating = false; }}
             on:fetcherror={onPolygonFetchError}
+            on:polygonsfetched={() => { polygonsReady = true; }}
         />
 
         <!-- 저장 위치 FAB (로그인 + 나침반 활성 시) -->
