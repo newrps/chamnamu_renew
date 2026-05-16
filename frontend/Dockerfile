@@ -2,6 +2,11 @@
 FROM node:20-alpine AS builder
 WORKDIR /app
 
+ARG VITE_API_BASE_URL=""
+ARG VITE_KAKAO_MAP_API_KEY
+ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
+ENV VITE_KAKAO_MAP_API_KEY=$VITE_KAKAO_MAP_API_KEY
+
 RUN npm install -g pnpm
 
 COPY package.json pnpm-lock.yaml ./
