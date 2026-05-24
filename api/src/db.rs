@@ -2,6 +2,7 @@ use actix_web::{web, Result, error::ErrorInternalServerError, Error};
 use serde::{Deserialize, Serialize};
 use deadpool_postgres::{Pool, Client};
 use tokio_postgres::types::ToSql;
+use serde_json::value::RawValue;
 
 // ── DB 마이그레이션 ───────────────────────────────────────────────────────────
 
@@ -131,10 +132,10 @@ pub async fn delete_location(
 }
 
 // API 응답으로 보낼 데이터의 구조체입니다.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Debug)]
 pub struct MapData {
     pub id: i32,
-    pub geometry: serde_json::Value,
+    pub geometry: Box<RawValue>,
 }
 
 // POST 요청으로 받을 데이터의 구조체입니다.
@@ -157,7 +158,7 @@ pub async fn get_all_polygon_data(pool: web::Data<Pool>) -> Result<Vec<MapData>,
         let geom_str: String = row.get(1);
         MapData {
             id: row.get(0),
-            geometry: serde_json::from_str(&geom_str).unwrap_or(serde_json::Value::Null),
+            geometry: RawValue::from_string(geom_str).unwrap_or_else(|_| RawValue::from_string("null".to_string()).unwrap()),
         }
     }).collect();
     
@@ -187,6 +188,7 @@ pub async fn create_new_chamnamu_data(pool: web::Data<Pool>, new_data: CreateCha
 // 특정 좌표 주변의 맵 데이터를 조회하는 함수입니다.
 // wkt_point: 'POINT(x y)' 형식의 문자열, distance: 미터 단위의 거리
 pub async fn get_nearby_polygon_data(pool: web::Data<Pool>, lng: f64, lat:f64, distance: f64) -> Result<Vec<MapData>, Error> {
+    let distance = distance.min(10000.0);
     let client: Client = pool.get().await.map_err(ErrorInternalServerError)?;
     let query = r#"
         SELECT ogc_fid, ST_AsGeoJSON(ST_Transform(wkb_geometry, 4326), 6)
@@ -196,6 +198,7 @@ pub async fn get_nearby_polygon_data(pool: web::Data<Pool>, lng: f64, lat:f64, d
             ST_Transform(ST_SetSRID(ST_MakePoint($1, $2), 4326), 5179),
             $3
         )
+        LIMIT 2000
     "#;
 
     let rows = client.query(query, &[&lng, &lat, &distance])
@@ -206,7 +209,7 @@ pub async fn get_nearby_polygon_data(pool: web::Data<Pool>, lng: f64, lat:f64, d
         let geom_str: String = row.get(1);
         MapData {
             id: row.get(0),
-            geometry: serde_json::from_str(&geom_str).unwrap_or(serde_json::Value::Null),
+            geometry: RawValue::from_string(geom_str).unwrap_or_else(|_| RawValue::from_string("null".to_string()).unwrap()),
         }
     }).collect();
 
