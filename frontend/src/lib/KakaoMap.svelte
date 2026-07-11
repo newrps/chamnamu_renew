@@ -67,6 +67,10 @@
             if (overlayElement) {
                 overlayElement.style.transform = `rotate(${angle}deg)`;
             }
+            if (mapContainer) {
+                mapContainer.style.transform = `rotate(${-angle}deg) scale(1.5)`;
+                mapContainer.style.transformOrigin = '50% 50%';
+            }
             rafId = null;
         });
     }
@@ -252,6 +256,9 @@
         currentHeading = 0;
         continuousHeading = 0;
         absoluteOrientationReceived = false;
+        if (mapContainer) {
+            mapContainer.style.transform = '';
+        }
         lastPolygonUpdate = 0;
         lastCenter = null;
 
