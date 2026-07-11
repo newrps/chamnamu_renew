@@ -65,10 +65,10 @@
         const angle = continuousHeading;
         rafId = requestAnimationFrame(() => {
             if (overlayElement) {
-                overlayElement.style.transform = `rotate(${angle}deg)`;
+                overlayElement.style.transform = `rotate(${-angle}deg)`;
             }
             if (mapContainer) {
-                mapContainer.style.transform = `rotate(${-angle}deg) scale(1.5)`;
+                mapContainer.style.transform = `rotate(${angle}deg) scale(1.5)`;
                 mapContainer.style.transformOrigin = '50% 50%';
             }
             rafId = null;
