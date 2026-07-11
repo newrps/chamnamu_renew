@@ -65,9 +65,11 @@
         const angle = continuousHeading;
         rafId = requestAnimationFrame(() => {
             if (overlayElement) {
+                overlayElement.style.transition = 'transform 0.2s linear';
                 overlayElement.style.transform = `rotate(${-angle}deg)`;
             }
             if (mapContainer) {
+                mapContainer.style.transition = 'transform 0.2s linear';
                 mapContainer.style.transform = `rotate(${angle}deg) scale(1.5)`;
                 mapContainer.style.transformOrigin = '50% 50%';
             }
@@ -257,6 +259,7 @@
         continuousHeading = 0;
         absoluteOrientationReceived = false;
         if (mapContainer) {
+            mapContainer.style.transition = '';
             mapContainer.style.transform = '';
         }
         lastPolygonUpdate = 0;
