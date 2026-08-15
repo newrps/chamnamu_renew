@@ -18,6 +18,19 @@
     let drawnPolygons = new Map<string, kakao.maps.Polygon[]>();
     let polygonsFetchedOnce = false;
 
+    // 참나무 수종별 표시 색상 (카카오맵 배경 위에서 서로 구분되도록 고른 팔레트)
+    const SPECIES_COLORS: Record<string, { fill: string; stroke: string }> = {
+        '신갈나무':     { fill: '#2a78d6', stroke: '#1c5aa8' },
+        '굴참나무':     { fill: '#eb6834', stroke: '#c94f22' },
+        '상수리나무':   { fill: '#1baf7a', stroke: '#148a5e' },
+        '기타참나무류': { fill: '#898781', stroke: '#6b6963' }
+    };
+    const DEFAULT_SPECIES_COLOR = { fill: '#898781', stroke: '#6b6963' };
+    function colorForSpecies(species: string | null | undefined) {
+        return (species && SPECIES_COLORS[species]) || DEFAULT_SPECIES_COLOR;
+    }
+    export const speciesLegend = Object.entries(SPECIES_COLORS).map(([name, color]) => ({ name, color: color.fill }));
+
     let isHeadingActive = false;
     let watchId: number | null = null;
     let savedLocationMarkers: any[] = [];
@@ -350,16 +363,17 @@
                 incomingIds.add(key);
                 if (drawnPolygons.has(key)) return;
                 const paths = parseGeoJSON(item.geometry);
+                const color = colorForSpecies(item.species);
                 const newPolys: kakao.maps.Polygon[] = [];
                 paths.forEach((path: kakao.maps.LatLng[]) => {
                     if (path.length > 0) {
                         const polygon = new kakao.maps.Polygon({
                             path,
                             strokeWeight: 3,
-                            strokeColor: '#1565c0',
+                            strokeColor: color.stroke,
                             strokeOpacity: 0.9,
-                            fillColor: '#2196f3',
-                            fillOpacity: 0.35
+                            fillColor: color.fill,
+                            fillOpacity: 0.4
                         });
                         polygon.setMap(map);
                         newPolys.push(polygon);
@@ -496,6 +510,18 @@
         정확한 위치 찾는 중...
     </div>
     {/if}
+
+    <div style="position:absolute;bottom:16px;left:16px;z-index:150;
+                display:flex;flex-direction:column;gap:4px;
+                background:rgba(0,0,0,0.65);color:white;
+                padding:8px 12px;border-radius:10px;font-size:12px;">
+        {#each speciesLegend as item}
+        <div style="display:flex;align-items:center;gap:6px;white-space:nowrap;">
+            <span style="width:10px;height:10px;border-radius:2px;background:{item.color};flex-shrink:0;"></span>
+            <span>{item.name}</span>
+        </div>
+        {/each}
+    </div>
 </div>
 
 <style>

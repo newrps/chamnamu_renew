@@ -136,6 +136,7 @@ pub async fn delete_location(
 pub struct MapData {
     pub id: i32,
     pub geometry: Box<RawValue>,
+    pub species: Option<String>,
 }
 
 // POST 요청으로 받을 데이터의 구조체입니다.
@@ -150,7 +151,7 @@ pub struct CreateChamnamuData {
 pub async fn get_all_polygon_data(pool: web::Data<Pool>) -> Result<Vec<MapData>, Error> {
     let client: Client = pool.get().await.map_err(ErrorInternalServerError)?;
 
-    let rows = client.query("SELECT ogc_fid, ST_AsGeoJSON(ST_Transform(wkb_geometry, 4326), 6) FROM chamnamu_tree", &[])
+    let rows = client.query("SELECT ogc_fid, ST_AsGeoJSON(ST_Transform(wkb_geometry, 4326), 6), koftr_nm FROM chamnamu_tree", &[])
         .await
         .map_err(ErrorInternalServerError)?;
 
@@ -159,9 +160,10 @@ pub async fn get_all_polygon_data(pool: web::Data<Pool>) -> Result<Vec<MapData>,
         MapData {
             id: row.get(0),
             geometry: RawValue::from_string(geom_str).unwrap_or_else(|_| RawValue::from_string("null".to_string()).unwrap()),
+            species: row.get(2),
         }
     }).collect();
-    
+
     Ok(map_data_list)
 }
 
@@ -191,7 +193,7 @@ pub async fn get_nearby_polygon_data(pool: web::Data<Pool>, lng: f64, lat:f64, d
     let distance = distance.min(10000.0);
     let client: Client = pool.get().await.map_err(ErrorInternalServerError)?;
     let query = r#"
-        SELECT ogc_fid, ST_AsGeoJSON(ST_Transform(wkb_geometry, 4326), 6)
+        SELECT ogc_fid, ST_AsGeoJSON(ST_Transform(wkb_geometry, 4326), 6), koftr_nm
         FROM chamnamu_tree
         WHERE ST_DWithin(
             wkb_geometry,
@@ -210,6 +212,7 @@ pub async fn get_nearby_polygon_data(pool: web::Data<Pool>, lng: f64, lat:f64, d
         MapData {
             id: row.get(0),
             geometry: RawValue::from_string(geom_str).unwrap_or_else(|_| RawValue::from_string("null".to_string()).unwrap()),
+            species: row.get(2),
         }
     }).collect();
 

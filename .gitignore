@@ -4,3 +4,4 @@ frontend/.svelte-kit/
 frontend/build/
 api/target/
 dump.sql
+db_backups/
