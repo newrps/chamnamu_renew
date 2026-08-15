@@ -31,6 +31,29 @@
     }
     export const speciesLegend = Object.entries(SPECIES_COLORS).map(([name, color]) => ({ name, color: color.fill }));
 
+    let polygonInfoOverlay: any = null;
+    function showPolygonInfo(species: string | null | undefined, position: any) {
+        const color = colorForSpecies(species);
+        const html = `<div style="
+                background: rgba(0,0,0,0.8); color: white; padding: 6px 10px;
+                border-radius: 6px; font-size: 12px; white-space: nowrap;
+                display: flex; align-items: center; gap: 6px;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.3); pointer-events: none;
+            "><span style="width:9px;height:9px;border-radius:2px;background:${color.fill};flex-shrink:0;"></span><span>${species || '기타참나무류'}</span></div>`;
+        if (!polygonInfoOverlay) {
+            polygonInfoOverlay = new kakao.maps.CustomOverlay({
+                position, content: html, xAnchor: 0.5, yAnchor: 1.4, zIndex: 300
+            });
+        } else {
+            polygonInfoOverlay.setContent(html);
+            polygonInfoOverlay.setPosition(position);
+        }
+        polygonInfoOverlay.setMap(map);
+    }
+    function hidePolygonInfo() {
+        if (polygonInfoOverlay) polygonInfoOverlay.setMap(null);
+    }
+
     let isHeadingActive = false;
     let watchId: number | null = null;
     let savedLocationMarkers: any[] = [];
@@ -300,6 +323,7 @@
             kakao.maps.event.addListener(map, 'zoom_changed', () => {
                 fetchAndDrawPolygons();
             });
+            kakao.maps.event.addListener(map, 'click', hidePolygonInfo);
         } else {
             console.error("카카오맵 API 스크립트가 아직 로드되지 않았습니다.");
         }
@@ -376,6 +400,17 @@
                             fillOpacity: 0.4
                         });
                         polygon.setMap(map);
+                        kakao.maps.event.addListener(polygon, 'mouseover', (e: any) => {
+                            showPolygonInfo(item.species, e.latLng);
+                        });
+                        kakao.maps.event.addListener(polygon, 'mousemove', (e: any) => {
+                            if (polygonInfoOverlay) polygonInfoOverlay.setPosition(e.latLng);
+                        });
+                        kakao.maps.event.addListener(polygon, 'mouseout', hidePolygonInfo);
+                        kakao.maps.event.addListener(polygon, 'click', (e: any) => {
+                            kakao.maps.event.preventMap();
+                            showPolygonInfo(item.species, e.latLng);
+                        });
                         newPolys.push(polygon);
                     }
                 });
@@ -511,7 +546,7 @@
     </div>
     {/if}
 
-    <div style="position:absolute;bottom:16px;left:16px;z-index:150;
+    <div style="position:absolute;bottom:112px;left:16px;z-index:150;
                 display:flex;flex-direction:column;gap:4px;
                 background:rgba(0,0,0,0.65);color:white;
                 padding:8px 12px;border-radius:10px;font-size:12px;">
