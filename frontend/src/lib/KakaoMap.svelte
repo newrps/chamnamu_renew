@@ -47,6 +47,37 @@
     export const speciesLegendMore = OTHER_SPECIES.map(name => ({ name, color: SPECIES_COLORS[name].fill }));
     let legendExpanded = false;
 
+    // 범례 좌우 스와이프로 숨기기/보이기
+    let legendHidden = false;
+    let legendSwipeStartX = 0;
+    let legendSwiping = false;
+
+    function legendSwipeStart(e: TouchEvent | MouseEvent) {
+        legendSwipeStartX = e instanceof TouchEvent ? e.touches[0].clientX : (e as MouseEvent).clientX;
+        legendSwiping = true;
+        document.addEventListener('touchmove', legendSwipeMove, { passive: true });
+        document.addEventListener('touchend', legendSwipeEnd, { once: true });
+        document.addEventListener('mousemove', legendSwipeMove);
+        document.addEventListener('mouseup', legendSwipeEnd, { once: true });
+    }
+
+    function legendSwipeMove(e: TouchEvent | MouseEvent) {
+        if (!legendSwiping) return;
+        const x = e instanceof TouchEvent ? e.touches[0].clientX : (e as MouseEvent).clientX;
+        const deltaX = x - legendSwipeStartX;
+        if (deltaX < -40 && !legendHidden) {
+            legendHidden = true;
+        } else if (deltaX > 40 && legendHidden) {
+            legendHidden = false;
+        }
+    }
+
+    function legendSwipeEnd() {
+        legendSwiping = false;
+        document.removeEventListener('touchmove', legendSwipeMove);
+        document.removeEventListener('mousemove', legendSwipeMove);
+    }
+
     let polygonInfoOverlay: any = null;
     function showPolygonInfo(species: string | null | undefined, position: any) {
         const color = colorForSpecies(species);
@@ -571,10 +602,18 @@
     </div>
     {/if}
 
-    <div style="position:fixed;bottom:calc({legendBottom}px + env(safe-area-inset-bottom, 0px));left:16px;z-index:150;
+    <div
+        on:touchstart={legendSwipeStart}
+        on:mousedown={legendSwipeStart}
+        style="position:fixed;bottom:calc({legendBottom}px + env(safe-area-inset-bottom, 0px));left:16px;z-index:150;
                 display:flex;flex-direction:column;gap:4px;
                 background:rgba(0,0,0,0.65);color:white;
-                padding:8px 12px;border-radius:10px;font-size:12px;max-width:150px;">
+                padding:8px 12px;border-radius:10px;font-size:12px;max-width:150px;
+                touch-action:pan-y;user-select:none;cursor:grab;
+                transition:transform 0.25s ease, opacity 0.25s ease;
+                transform:translateX({legendHidden ? '-150%' : '0'});
+                opacity:{legendHidden ? 0 : 1};
+                pointer-events:{legendHidden ? 'none' : 'auto'};">
         {#each speciesLegendPrimary as item}
         <div style="display:flex;align-items:center;gap:6px;white-space:nowrap;">
             <span style="width:10px;height:10px;border-radius:2px;background:{item.color};flex-shrink:0;"></span>
@@ -595,6 +634,17 @@
                    font-size:12px;padding:0;cursor:pointer;text-align:left;"
         >{legendExpanded ? '접기 ▲' : '· · · 더보기'}</button>
     </div>
+
+    {#if legendHidden}
+    <div
+        on:touchstart={legendSwipeStart}
+        on:mousedown={legendSwipeStart}
+        on:click={() => legendHidden = false}
+        style="position:fixed;bottom:calc({legendBottom}px + env(safe-area-inset-bottom, 0px));left:0;z-index:150;
+                background:rgba(0,0,0,0.65);color:white;
+                padding:8px 6px;border-radius:0 10px 10px 0;font-size:12px;
+                touch-action:pan-y;cursor:pointer;">▶</div>
+    {/if}
 </div>
 
 <style>
