@@ -173,6 +173,11 @@
     let currentAd: AdBanner | null = null; // 현재 선택된 광고
     let adList: AdBanner[] = []; // JSON에서 불러올 광고 목록
 
+    // 우측 하단 FAB 스택 위치 계산 (채집예보/나침반 -> 위성 -> 로드뷰 -> 저장위치 순으로 쌓임)
+    $: fabBaseBottom = showAdBanner ? 116 : 20;
+    $: saveLocationFabBottom = fabBaseBottom + 176;
+    $: locationsFabBottom = isHeadingActive ? fabBaseBottom + 232 : fabBaseBottom + 176;
+
     // 광고 목록을 불러오는 함수 (API 우선, 실패 시 ads.json 폴백)
     async function loadAds() {
         try {
@@ -1283,7 +1288,7 @@
         <!-- 저장 위치 FAB (로그인 + 나침반 활성 시) -->
         {#if $authUser && isHeadingActive}
             {#if showSaveForm}
-                <div class="save-form-popup" style="bottom: {showAdBanner ? 310 : 140}px;">
+                <div class="save-form-popup" style="bottom: calc({saveLocationFabBottom}px + env(safe-area-inset-bottom, 0px));">
                     <input
                         bind:value={saveLocationName}
                         placeholder="위치 이름 입력"
@@ -1293,7 +1298,7 @@
                     <button on:click={handleSaveLocation}>저장</button>
                 </div>
             {/if}
-            <button class="save-location-fab" style="bottom: {showAdBanner ? 310 : 140}px;" on:click={() => showSaveForm = !showSaveForm} title="현재 위치 저장">
+            <button class="save-location-fab" style="bottom: calc({saveLocationFabBottom}px + env(safe-area-inset-bottom, 0px));" on:click={() => showSaveForm = !showSaveForm} title="현재 위치 저장">
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M17 3H5a2 2 0 00-2 2v14l7-3 7 3V5a2 2 0 00-2-2z"/>
                 </svg>
@@ -1302,7 +1307,7 @@
 
         <!-- 저장 위치 목록 FAB (로그인 시) -->
         {#if $authUser}
-            <button class="locations-fab" style="bottom: {showAdBanner ? 250 : (isHeadingActive ? 200 : 140)}px;" on:click={() => showLocationsPanel = true} title="저장된 위치">
+            <button class="locations-fab" style="bottom: calc({locationsFabBottom}px + env(safe-area-inset-bottom, 0px));" on:click={() => showLocationsPanel = true} title="저장된 위치">
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
                 </svg>
