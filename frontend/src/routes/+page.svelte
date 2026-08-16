@@ -665,7 +665,7 @@
 
     .satellite-fab {
         position: fixed;
-        right: 68px;
+        right: 12px;
         width: 48px;
         height: 48px;
         border-radius: 50%;
@@ -1330,7 +1330,7 @@
         <!-- 위성지도 토글 버튼 -->
         <button
             class="satellite-fab {isSatellite ? 'active' : ''}"
-            style="bottom: calc({showAdBanner ? 116 : 20}px + env(safe-area-inset-bottom, 0px));"
+            style="bottom: calc({showAdBanner ? 116 : 20}px + 56px + env(safe-area-inset-bottom, 0px));"
             on:click={() => mapComponent.toggleMapType()}
             title={isSatellite ? '일반 지도로 보기' : '위성 지도로 보기'}
         >🛰️</button>
