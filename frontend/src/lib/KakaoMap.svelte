@@ -132,6 +132,8 @@
     // 임시 디버그 표시용 - 드래그/줌 보정 버그를 실제 기기에서 확인하기 위한 값들
     let debugScreenDx = 0, debugScreenDy = 0, debugInternalDx = 0, debugInternalDy = 0;
     let debugPinchRatio = 1, debugPinchTargetLevel = 0;
+    let debugDragStartX = 0, debugDragStartY = 0, debugDragEventCount = 0;
+    let debugCumScreenX = 0, debugCumScreenY = 0, debugCumInternalX = 0, debugCumInternalY = 0;
     let currentHeading = 0;
     let continuousHeading = 0;
     let appliedRotationAngle = 0; // mapContainer에 실제로 적용된 CSS 회전각 (드래그 보정 계산에 사용)
@@ -490,6 +492,10 @@
         customDragLastY = clientY;
         dragRefAngle = appliedRotationAngle;
         dragRefScale = appliedRotationScale;
+        // 드래그 전체 구간 누적 디버그값 리셋 - 한 번의 드래그 동안 손가락 총 이동량 vs 실제 적용된 이동량 비교용
+        debugDragStartX = clientX; debugDragStartY = clientY;
+        debugDragEventCount = 0;
+        debugCumInternalX = 0; debugCumInternalY = 0;
         if (isFollowing) pauseFollowing();
     }
 
@@ -505,6 +511,9 @@
         const internalDy = delta.y / dragRefScale;
         debugScreenDx = screenDx; debugScreenDy = screenDy;
         debugInternalDx = internalDx; debugInternalDy = internalDy;
+        debugDragEventCount++;
+        debugCumInternalX += internalDx; debugCumInternalY += internalDy;
+        debugCumScreenX = clientX - debugDragStartX; debugCumScreenY = clientY - debugDragStartY;
         // 드래그 방향으로 화면 내용이 손가락을 따라오도록 부호 반전
         panByRotated(-internalDx, -internalDy);
     }
@@ -1077,6 +1086,7 @@
         line-height:1.5;padding:6px 8px;border-radius:6px;white-space:pre;">
 angle={appliedRotationAngle.toFixed(1)} scale={appliedRotationScale.toFixed(2)}
 drag screen=({debugScreenDx.toFixed(0)},{debugScreenDy.toFixed(0)}) internal=({debugInternalDx.toFixed(1)},{debugInternalDy.toFixed(1)})
+drag누적(n={debugDragEventCount}) screen총=({debugCumScreenX.toFixed(0)},{debugCumScreenY.toFixed(0)}) internal총=({debugCumInternalX.toFixed(1)},{debugCumInternalY.toFixed(1)})
 pinch ratio={debugPinchRatio.toFixed(2)} targetLevel={debugPinchTargetLevel}
     </div>
     {/if}
