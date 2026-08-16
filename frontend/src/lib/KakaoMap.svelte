@@ -1018,14 +1018,17 @@
     </div>
 
     {#if controlsReady && legendHidden}
-    <div
+    <button
         on:touchstart={legendSwipeStart}
         on:mousedown={legendSwipeStart}
         on:click={() => setLegendHidden(false)}
-        style="position:fixed;bottom:calc({legendBottom}px + env(safe-area-inset-bottom, 0px));left:0;z-index:150;
-                background:rgba(0,0,0,0.65);color:white;
-                padding:8px 6px;border-radius:0 10px 10px 0;font-size:12px;
-                touch-action:pan-y;cursor:pointer;">▶</div>
+        aria-label="왼쪽 메뉴 보이기"
+        title="왼쪽 메뉴 보이기"
+        style="position:fixed;top:52%;left:0;transform:translateY(-50%);z-index:161;
+                width:22px;height:64px;padding:0;border:0;border-radius:0 10px 10px 0;
+                background:rgba(0,0,0,0.62);color:white;font-size:13px;
+                box-shadow:2px 0 8px rgba(0,0,0,0.2);
+                touch-action:pan-y;cursor:pointer;">▶</button>
     {/if}
 
     <div style="position:fixed;inset:0;z-index:400;display:{roadviewOpen ? 'block' : 'none'};background:#000;">
