@@ -145,6 +145,7 @@
     let appliedRotationAngle = 0; // mapContainer에 실제로 적용된 CSS 회전각 (드래그 보정 계산에 사용)
     let rafId: number | null = null;
     let interactionUnlockTimer: ReturnType<typeof setTimeout> | null = null;
+    const NORTH_UP_INTERACTION_DELAY_MS = 2000;
 
     // 뷰포트 대각선 길이의 정사각형 지도를 렌더링하면 어떤 각도로 돌려도 모서리가 비지 않는다.
     // 기존 CSS scale 보정을 없애 헤딩업 -> 북쪽 고정 전환 시 발생하던 확대/축소 튐도 제거한다.
@@ -465,7 +466,7 @@
     }
 
     // 헤딩업에서는 카카오맵 자체 제스처를 잠가 좌표계가 바뀌는 도중 드래그/줌이 시작되지 않게 한다.
-    // 첫 입력은 북쪽 고정 전환에만 사용하고, 짧은 전환이 끝난 뒤 다음 입력부터 지도를 조작한다.
+    // 첫 입력은 북쪽 고정 전환에만 사용하고, 손가락이 완전히 떨어질 시간을 확보한 뒤 지도를 조작한다.
     function switchToNorthUpForInteraction() {
         if (!isHeadingActive || headingMode !== 'heading-up') return;
         if (isFollowing) pauseFollowing();
@@ -479,7 +480,7 @@
         interactionUnlockTimer = setTimeout(() => {
             interactionUnlockTimer = null;
             setMapInteractionEnabled(true);
-        }, 300);
+        }, NORTH_UP_INTERACTION_DELAY_MS);
     }
 
     function initializeMap() {
