@@ -3,7 +3,7 @@
 </script>
 
 <script lang="ts">
-    import { onMount, createEventDispatcher } from 'svelte';
+    import { onMount, createEventDispatcher, tick } from 'svelte';
     import { writable } from 'svelte/store';
 
     const locating = writable(false);
@@ -507,9 +507,12 @@
     export let roadviewMode = false;
     let roadviewOpen = false;
     let roadviewContainer: HTMLElement;
+    let miniMapContainer: HTMLElement;
     let roadviewClient: any;
     let roadviewInstance: any;
     let roadviewClickListener: any;
+    let miniMap: any;
+    let miniMapMarker: any;
 
     export function toggleRoadview() {
         if (!map) return;
@@ -527,14 +530,32 @@
     function handleRoadviewMapClick(mouseEvent: any) {
         if (!roadviewClient) roadviewClient = new kakao.maps.RoadviewClient();
         const position = mouseEvent.latLng;
-        roadviewClient.getNearestPanoId(position, 50, (panoId: number | null) => {
+        roadviewClient.getNearestPanoId(position, 50, async (panoId: number | null) => {
             if (!panoId) return;
             roadviewOpen = true;
+            await tick(); // 컨테이너가 실제로 화면에 표시된 뒤에 초기화/리레이아웃 해야 크기가 제대로 잡힘
+
             if (!roadviewInstance) {
                 roadviewInstance = new kakao.maps.Roadview(roadviewContainer);
+                kakao.maps.event.addListener(roadviewInstance, 'position_changed', () => {
+                    const pos = roadviewInstance.getPosition();
+                    if (miniMap && miniMapMarker) {
+                        miniMap.setCenter(pos);
+                        miniMapMarker.setPosition(pos);
+                    }
+                });
             }
             roadviewInstance.setPanoId(panoId, position);
             roadviewInstance.relayout();
+
+            if (!miniMap) {
+                miniMap = new kakao.maps.Map(miniMapContainer, { center: position, level: 3 });
+                miniMapMarker = new kakao.maps.Marker({ position, map: miniMap });
+            } else {
+                miniMap.setCenter(position);
+                miniMapMarker.setPosition(position);
+                miniMap.relayout();
+            }
         });
     }
 
@@ -700,6 +721,9 @@
 
     <div style="position:fixed;inset:0;z-index:400;display:{roadviewOpen ? 'block' : 'none'};background:#000;">
         <div bind:this={roadviewContainer} style="width:100%;height:100%;"></div>
+        <div bind:this={miniMapContainer} style="position:absolute;top:16px;left:16px;z-index:401;
+                   width:150px;height:150px;border-radius:10px;overflow:hidden;
+                   box-shadow:0 2px 12px rgba(0,0,0,0.5);border:2px solid rgba(255,255,255,0.8);"></div>
         <button
             on:click={closeRoadview}
             style="position:absolute;top:16px;right:16px;z-index:401;
