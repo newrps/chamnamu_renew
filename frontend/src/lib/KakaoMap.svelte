@@ -129,6 +129,9 @@
     let overlayElement: HTMLDivElement | null = null;
 
     let appliedRotationScale = 1; // mapContainer에 실제로 적용된 확대 배율 (드래그 보정 계산에 사용)
+    // 임시 디버그 표시용 - 드래그/줌 보정 버그를 실제 기기에서 확인하기 위한 값들
+    let debugScreenDx = 0, debugScreenDy = 0, debugInternalDx = 0, debugInternalDy = 0;
+    let debugPinchRatio = 1, debugPinchTargetLevel = 0;
     let currentHeading = 0;
     let continuousHeading = 0;
     let appliedRotationAngle = 0; // mapContainer에 실제로 적용된 CSS 회전각 (드래그 보정 계산에 사용)
@@ -173,6 +176,19 @@
         return paths;
     }
 
+    // 핀치줌 도중 정수 레벨 사이를 부드럽게 이어 보이도록 얹는 임시 CSS 배율 (제스처 끝나면 1로 리셋)
+    let pinchLiveScale = 1;
+
+    function applyContainerTransform(angle: number, withTransition: boolean) {
+        if (!mapContainer) return;
+        const scale = coverageScale(angle) * pinchLiveScale;
+        mapContainer.style.transition = withTransition ? 'transform 0.2s linear' : 'none';
+        mapContainer.style.transform = `rotate(${angle}deg) scale(${scale})`;
+        mapContainer.style.transformOrigin = '50% 50%';
+        appliedRotationAngle = angle;
+        appliedRotationScale = scale;
+    }
+
     function applyMapRotation(heading: number) {
         currentHeading = heading;
         const current = ((continuousHeading % 360) + 360) % 360;
@@ -189,14 +205,7 @@
                 overlayElement.style.transition = 'transform 0.2s linear';
                 overlayElement.style.transform = `rotate(${-angle}deg)`;
             }
-            const scale = coverageScale(angle);
-            if (mapContainer) {
-                mapContainer.style.transition = 'transform 0.2s linear';
-                mapContainer.style.transform = `rotate(${angle}deg) scale(${scale})`;
-                mapContainer.style.transformOrigin = '50% 50%';
-            }
-            appliedRotationAngle = angle;
-            appliedRotationScale = scale;
+            applyContainerTransform(angle, true);
             rafId = null;
         });
     }
@@ -409,6 +418,7 @@
         continuousHeading = 0;
         appliedRotationAngle = 0;
         appliedRotationScale = 1;
+        pinchLiveScale = 1;
         absoluteOrientationReceived = false;
         if (mapContainer) {
             mapContainer.style.transition = '';
@@ -479,9 +489,11 @@
         customDragLastX = clientX;
         customDragLastY = clientY;
         const delta = rotatedPanDelta(screenDx, screenDy);
-        // 지도 컨테이너가 scale(1.5)로 확대돼 있어서, 화면상 이동량을 지도 내부 픽셀 단위로 환산
+        // 지도 컨테이너가 확대돼 있어서, 화면상 이동량을 지도 내부 픽셀 단위로 환산
         const internalDx = delta.x / appliedRotationScale;
         const internalDy = delta.y / appliedRotationScale;
+        debugScreenDx = screenDx; debugScreenDy = screenDy;
+        debugInternalDx = internalDx; debugInternalDy = internalDy;
         // 드래그 방향으로 화면 내용이 손가락을 따라오도록 부호 반전
         panByRotated(-internalDx, -internalDy);
     }
@@ -526,12 +538,29 @@
         if (!map || pinchStartDist <= 0) return;
         const dist = touchDistance(t0, t1);
         const ratio = dist / pinchStartDist;
-        // 카카오 레벨은 낮을수록 확대(줌인) - 손가락을 벌리면(ratio>1) 레벨을 낮춤
-        let targetLevel = Math.round(pinchStartLevel - Math.log2(ratio));
+        // 카카오 레벨은 낮을수록 확대(줌인) - 손가락을 벌리면(ratio>1) 레벨을 낮춤. 정수 레벨이 아니라
+        // 연속값(rawTarget)으로 계산해서, 실제 레벨(정수)로 스냅하기 전까지의 차이를 CSS 확대로 보여줌
+        // -> 카카오 레벨 전환이 매번 뚝뚝 끊기지 않고 부드럽게 이어져 보임
+        const rawTarget = pinchStartLevel - Math.log2(ratio);
+        let targetLevel = Math.round(rawTarget);
         targetLevel = Math.max(MIN_ZOOM_LEVEL, Math.min(MAX_ZOOM_LEVEL, targetLevel));
         if (targetLevel !== map.getLevel()) {
             map.setLevel(targetLevel);
         }
+        const committedLevel = map.getLevel();
+        pinchLiveScale = Math.pow(2, committedLevel - rawTarget);
+        applyContainerTransform(appliedRotationAngle, false);
+        debugPinchRatio = ratio;
+        debugPinchTargetLevel = targetLevel;
+    }
+
+    function endPinch() {
+        if (!pinchActive) return;
+        pinchActive = false;
+        pinchStartDist = 0;
+        pinchLiveScale = 1;
+        applyContainerTransform(appliedRotationAngle, true);
+        fetchAndDrawPolygons();
     }
 
     function handleContainerWheel(e: WheelEvent) {
@@ -568,7 +597,7 @@
         if (e.touches.length === 1) {
             if (pinchActive) {
                 // 핀치 중 손가락 하나를 떼면 남은 손가락으로 드래그 재개
-                pinchActive = false;
+                endPinch();
                 customDragStart(e.touches[0].clientX, e.touches[0].clientY);
             }
             if (!customDragActive) return;
@@ -578,13 +607,13 @@
     }
     function handleWindowTouchEnd(e: TouchEvent) {
         if (e.touches.length === 1) {
-            pinchActive = false;
+            endPinch();
             customDragStart(e.touches[0].clientX, e.touches[0].clientY);
             return;
         }
         if (e.touches.length > 0) return;
         customDragEnd();
-        pinchActive = false;
+        endPinch();
         window.removeEventListener('touchmove', handleWindowTouchMove);
         window.removeEventListener('touchend', handleWindowTouchEnd);
         window.removeEventListener('touchcancel', handleWindowTouchEnd);
@@ -1025,6 +1054,16 @@
 
 <div style="position:relative;width:100%;height:100vh;overflow:hidden;">
     <div bind:this={mapContainer} style="width:100%;height:100%;"></div>
+
+    {#if isHeadingActive}
+    <div style="position:absolute;top:8px;left:8px;z-index:500;pointer-events:none;
+        background:rgba(0,0,0,0.75);color:#0f0;font-family:monospace;font-size:11px;
+        line-height:1.5;padding:6px 8px;border-radius:6px;white-space:pre;">
+angle={appliedRotationAngle.toFixed(1)} scale={appliedRotationScale.toFixed(2)}
+drag screen=({debugScreenDx.toFixed(0)},{debugScreenDy.toFixed(0)}) internal=({debugInternalDx.toFixed(1)},{debugInternalDy.toFixed(1)})
+pinch ratio={debugPinchRatio.toFixed(2)} targetLevel={debugPinchTargetLevel}
+    </div>
+    {/if}
 
     {#if $locating}
     <div style="position:absolute;bottom:80px;left:50%;transform:translateX(-50%);z-index:200;pointer-events:none;
