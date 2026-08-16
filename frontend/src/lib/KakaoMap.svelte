@@ -1241,10 +1241,12 @@
         aria-label="수종 범례"
         on:touchstart={legendSwipeStart}
         on:mousedown={legendSwipeStart}
-        style="position:fixed;bottom:calc({legendBottom}px + env(safe-area-inset-bottom, 0px));left:16px;z-index:150;
-                display:flex;flex-direction:column;gap:4px;
+        style="--legend-available-height:calc(100vh - {legendBottom}px - env(safe-area-inset-bottom, 0px) - 28px);
+                --legend-available-height:calc(100dvh - {legendBottom}px - env(safe-area-inset-bottom, 0px) - 28px);
+                position:fixed;bottom:calc({legendBottom}px + env(safe-area-inset-bottom, 0px));left:16px;z-index:150;
+                display:flex;flex-direction:column;gap:2px;
                 background:rgba(0,0,0,0.65);color:white;
-                padding:8px 20px 8px 8px;border-radius:10px;font-size:12px;max-width:190px;
+                padding:6px 20px 6px 7px;border-radius:10px;font-size:12px;max-width:190px;
                 touch-action:pan-y;user-select:none;cursor:grab;
                 visibility:{controlsReady ? 'visible' : 'hidden'};
                 transition:{controlsReady ? 'transform 0.25s ease, opacity 0.25s ease' : 'none'};
@@ -1257,6 +1259,7 @@
             aria-label="왼쪽 메뉴 숨기기"
             title="왼쪽 메뉴 숨기기"
         ></button>
+        <div class="legend-species-list">
         {#each speciesLegendPrimary as item}
         <div class="legend-species-row {selectedSpecies === item.name ? 'selected' : ''} {selectedSpecies && selectedSpecies !== item.name ? 'muted' : ''}">
             <button class="legend-species-select" on:click={() => toggleSpeciesHighlight(item.name)} title="{item.name} 강조" aria-pressed={selectedSpecies === item.name}>
@@ -1293,10 +1296,10 @@
         </div>
         {/each}
         {/if}
+        </div>
         <button
+            class="legend-expand-button"
             on:click={() => legendExpanded = !legendExpanded}
-            style="margin-top:2px;background:none;border:none;color:rgba(255,255,255,0.75);
-                   font-size:12px;padding:0;cursor:pointer;text-align:left;"
         >{legendExpanded ? '접기 ▲' : '· · · 더보기'}</button>
     </div>
 
@@ -1360,7 +1363,7 @@
     .legend-species-row {
         display: flex;
         align-items: center;
-        min-height: 28px;
+        min-height: 25px;
         border-radius: 6px;
         transition: background 0.18s ease, opacity 0.18s ease;
     }
@@ -1380,7 +1383,7 @@
         display: flex;
         align-items: center;
         gap: 6px;
-        padding: 4px;
+        padding: 2px 4px;
         border: 0;
         background: transparent;
         color: inherit;
@@ -1396,9 +1399,9 @@
         flex-shrink: 0;
     }
     .legend-nearest-button {
-        width: 27px;
-        height: 27px;
-        flex: 0 0 27px;
+        width: 25px;
+        height: 25px;
+        flex: 0 0 25px;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -1413,8 +1416,42 @@
         background: rgba(255, 255, 255, 0.18);
     }
     .legend-nearest-button svg {
-        width: 17px;
-        height: 17px;
+        width: 16px;
+        height: 16px;
+    }
+    .legend-species-list {
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+        max-height: min(42vh, var(--legend-available-height));
+        max-height: min(42dvh, var(--legend-available-height));
+        padding-right: 2px;
+        overflow-x: hidden;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(141, 204, 255, 0.75) rgba(255, 255, 255, 0.08);
+    }
+    .legend-species-list::-webkit-scrollbar {
+        width: 4px;
+    }
+    .legend-species-list::-webkit-scrollbar-track {
+        background: rgba(255, 255, 255, 0.08);
+        border-radius: 2px;
+    }
+    .legend-species-list::-webkit-scrollbar-thumb {
+        background: rgba(141, 204, 255, 0.75);
+        border-radius: 2px;
+    }
+    .legend-expand-button {
+        margin-top: 1px;
+        padding: 2px 4px;
+        border: 0;
+        background: none;
+        color: rgba(255, 255, 255, 0.75);
+        font-size: 11px;
+        cursor: pointer;
+        text-align: left;
     }
     .legend-nearest-spinner {
         width: 13px;
