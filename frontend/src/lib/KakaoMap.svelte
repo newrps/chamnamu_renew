@@ -108,7 +108,20 @@
 
     let isHeadingActive = false;
     let dragStopHeadingTimer: ReturnType<typeof setTimeout> | null = null;
+    let programmaticPanTimer: ReturnType<typeof setTimeout> | null = null;
+    let isProgrammaticPan = false;
     let watchId: number | null = null;
+
+    // GPS 위치 추적 중 계속 호출되는 panTo() 자체가 dragstart를 발생시켜서
+    // 추적이 스스로 꺼져버리는 문제가 있었음 - 우리 코드가 부른 panTo인지 표시해둠
+    function panToPosition(lat: number, lng: number) {
+        isProgrammaticPan = true;
+        (map as any).panTo(new kakao.maps.LatLng(lat, lng));
+        if (programmaticPanTimer) clearTimeout(programmaticPanTimer);
+        programmaticPanTimer = setTimeout(() => {
+            isProgrammaticPan = false;
+        }, 600);
+    }
     let savedLocationMarkers: any[] = [];
     let locationOverlay: any = null;
     let overlayElement: HTMLDivElement | null = null;
@@ -275,7 +288,7 @@
                 const lng = position.coords.longitude;
                 currentLat = lat;
                 currentLng = lng;
-                (map as any).panTo(new kakao.maps.LatLng(lat, lng));
+                panToPosition(lat, lng);
             },
             () => {},
             { enableHighAccuracy: false, maximumAge: 30000, timeout: 3000 }
@@ -295,7 +308,7 @@
                 currentLng = lng;
 
                 createOrUpdateLocationOverlay(lat, lng);
-                (map as any).panTo(new kakao.maps.LatLng(lat, lng));
+                panToPosition(lat, lng);
                 updatePolygonsIfNeeded(lat, lng);
 
                 const gpsHeading = position.coords.heading;
@@ -371,6 +384,8 @@
 
             kakao.maps.event.addListener(map, 'dragend', fetchAndDrawPolygons);
             kakao.maps.event.addListener(map, 'dragstart', () => {
+                // 우리 코드가 panTo()로 지도를 움직인 것이면(현재위치 추적 중 계속 발생) 무시
+                if (isProgrammaticPan) return;
                 // 모바일 핀치줌 제스처가 시작될 때도 dragstart가 같이 발생해서, 줌인지 실제 드래그인지
                 // 잠깐 기다렸다가 판단함 (그 사이 zoom_changed가 오면 줌으로 간주하고 취소)
                 if (dragStopHeadingTimer) clearTimeout(dragStopHeadingTimer);
