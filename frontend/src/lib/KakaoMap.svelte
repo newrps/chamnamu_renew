@@ -156,7 +156,9 @@
         const sin = Math.abs(Math.sin(rad));
         const a = w / 2, b = h / 2;
         const needed = Math.max(cos + (b / a) * sin, (a / b) * sin + cos);
-        return Math.min(needed * 1.05, 3); // 여유 5% + 과도한 확대 방지 상한
+        // 회전량에 비례해 여유를 더한다. 0/180도에서는 정확히 1이 되어 북쪽 고정 전환 시
+        // 불필요한 5% 확대/축소가 다시 발생하지 않도록 한다.
+        return Math.min(needed + 0.05 * sin, 3);
     }
     let currentLat = 0;
     let currentLng = 0;
@@ -474,8 +476,10 @@
             overlayElement.style.transform = `rotate(${continuousHeading}deg)`;
         }
         if (mapContainer) {
-            mapContainer.style.transition = 'none';
-            mapContainer.style.transform = 'none';
+            // 회전과 모서리 보정용 확대를 한 프레임에 제거하면 지도가 순간이동해 보인다.
+            // 북쪽 고정 화면으로 짧게 보간하면서 카카오 기본 제스처로 넘긴다.
+            mapContainer.style.transition = 'transform 0.25s ease-out';
+            mapContainer.style.transform = 'rotate(0deg) scale(1)';
         }
         appliedRotationAngle = 0;
         appliedRotationScale = 1;
