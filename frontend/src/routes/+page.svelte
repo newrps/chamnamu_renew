@@ -831,8 +831,8 @@
         transform: translateX(calc(100% - 22px));
     }
     .right-controls-edge-tab {
-        position: absolute;
-        left: 0;
+        position: fixed;
+        right: 0;
         top: 52%;
         transform: translateY(-50%);
         width: 22px;
@@ -845,6 +845,7 @@
         font-size: 13px;
         box-shadow: -2px 0 8px rgba(0, 0, 0, 0.2);
         touch-action: pan-y;
+        z-index: 161;
     }
     .right-controls-group-bg {
         position: absolute;
@@ -1569,15 +1570,17 @@
             ></span>
         {/if}
 
-        {#if rightControlsHidden}
+        </div>
+
+        {#if menuStateReady && rightControlsHidden}
             <button
                 class="right-controls-edge-tab"
+                on:touchstart={(event) => handleControlSwipeStart(event, 'right')}
                 on:click={() => setControlsHidden('right', false)}
                 title="오른쪽 메뉴 보이기"
                 aria-label="오른쪽 메뉴 보이기"
             >◀</button>
         {/if}
-        </div>
 
         <!-- 채집 예보 패널 -->
         <CollectingForecast
