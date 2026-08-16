@@ -18,7 +18,22 @@
     let currentMarker: kakao.maps.Marker | null = null;
     export let legendBottom: number = 136;
 
-    let drawnPolygons = new Map<string, kakao.maps.Polygon[]>();
+    type PolygonBounds = { minLat: number; minLng: number; maxLat: number; maxLng: number };
+    type CachedPolygon = {
+        polygons: kakao.maps.Polygon[];
+        lastUsedAt: number;
+    };
+    type PolygonQueryCache = {
+        bounds: PolygonBounds;
+        ids: Set<string>;
+        lastUsedAt: number;
+    };
+
+    let drawnPolygons = new Map<string, CachedPolygon>();
+    let activePolygonIds = new Set<string>();
+    let polygonQueryCache: PolygonQueryCache[] = [];
+    let polygonCacheLimit = 14000;
+    let polygonQueryCacheLimit = 3;
     let polygonsFetchedOnce = false;
 
     // 참나무류: 채집지도의 핵심이라 선명한 색으로 표시
@@ -177,6 +192,29 @@
     let lastPolygonUpdate = 0;
     let lastCenter: { lat: number, lng: number } | null = null;
     let fetchAbortController: AbortController | null = null;
+
+    function configurePolygonCacheForDevice() {
+        const nav = navigator as Navigator & { deviceMemory?: number };
+        const memory = typeof nav.deviceMemory === 'number' ? nav.deviceMemory : null;
+        const cores = navigator.hardwareConcurrency || 2;
+
+        if (memory !== null && memory <= 2) {
+            polygonCacheLimit = 12000;
+            polygonQueryCacheLimit = 2;
+        } else if (memory !== null && memory <= 4) {
+            polygonCacheLimit = 16000;
+            polygonQueryCacheLimit = 4;
+        } else if (memory !== null) {
+            polygonCacheLimit = 24000;
+            polygonQueryCacheLimit = 7;
+        } else if (cores <= 4) {
+            polygonCacheLimit = 13000;
+            polygonQueryCacheLimit = 2;
+        } else {
+            polygonCacheLimit = 18000;
+            polygonQueryCacheLimit = 4;
+        }
+    }
 
     function parseGeoJSON(geometry: any): kakao.maps.LatLng[][] {
         if (!geometry) return [];
@@ -596,6 +634,7 @@
     // 뷰포트가 이 정도(위/경도 기준)보다 넓게 확대축소되면 서버에서도 빈 목록을 주므로
     // 굳이 요청을 안 보내고 화면 폴리곤만 정리한다 (백엔드 MAX_BBOX_DEGREES와 맞출 것)
     const MAX_BBOX_DEGREES = 1.0;
+    const POLYGON_QUERY_CACHE_TTL = 15 * 60 * 1000;
 
     function getPaddedBounds() {
         const bounds = map.getBounds() as any;
@@ -612,6 +651,85 @@
         };
     }
 
+    function boundsContains(outer: PolygonBounds, inner: PolygonBounds) {
+        return outer.minLat <= inner.minLat && outer.minLng <= inner.minLng &&
+            outer.maxLat >= inner.maxLat && outer.maxLng >= inner.maxLng;
+    }
+
+    function hideActivePolygons() {
+        for (const id of activePolygonIds) {
+            drawnPolygons.get(id)?.polygons.forEach(polygon => polygon.setMap(null));
+        }
+        activePolygonIds.clear();
+        hidePolygonInfo();
+    }
+
+    function activatePolygonIds(ids: Set<string>) {
+        for (const id of activePolygonIds) {
+            if (!ids.has(id)) {
+                drawnPolygons.get(id)?.polygons.forEach(polygon => polygon.setMap(null));
+            }
+        }
+
+        const now = Date.now();
+        for (const id of ids) {
+            const cached = drawnPolygons.get(id);
+            if (!cached) continue;
+            cached.lastUsedAt = now;
+            if (!activePolygonIds.has(id)) {
+                cached.polygons.forEach(polygon => polygon.setMap(map));
+            }
+        }
+        activePolygonIds = new Set(ids);
+    }
+
+    function findCachedPolygonQuery(bounds: PolygonBounds) {
+        const now = Date.now();
+        polygonQueryCache = polygonQueryCache.filter(entry => now - entry.lastUsedAt < POLYGON_QUERY_CACHE_TTL);
+        const entry = polygonQueryCache.find(candidate =>
+            boundsContains(candidate.bounds, bounds) &&
+            Array.from(candidate.ids).every(id => drawnPolygons.has(id))
+        );
+        if (entry) entry.lastUsedAt = now;
+        return entry;
+    }
+
+    function rememberPolygonQuery(bounds: PolygonBounds, ids: Set<string>) {
+        const now = Date.now();
+        polygonQueryCache = polygonQueryCache.filter(entry => !boundsContains(bounds, entry.bounds));
+        polygonQueryCache.push({ bounds, ids: new Set(ids), lastUsedAt: now });
+        polygonQueryCache.sort((a, b) => b.lastUsedAt - a.lastUsedAt);
+        polygonQueryCache = polygonQueryCache.slice(0, polygonQueryCacheLimit);
+    }
+
+    function evictUnusedPolygons() {
+        if (drawnPolygons.size <= polygonCacheLimit) return;
+
+        const removable = Array.from(drawnPolygons.entries())
+            .filter(([id]) => !activePolygonIds.has(id))
+            .sort(([, a], [, b]) => a.lastUsedAt - b.lastUsedAt);
+        const evictedIds = new Set<string>();
+
+        for (const [id, cached] of removable) {
+            if (drawnPolygons.size <= polygonCacheLimit) break;
+            cached.polygons.forEach(polygon => polygon.setMap(null));
+            drawnPolygons.delete(id);
+            evictedIds.add(id);
+        }
+
+        if (evictedIds.size > 0) {
+            polygonQueryCache = polygonQueryCache.filter(entry =>
+                !Array.from(evictedIds).some(id => entry.ids.has(id))
+            );
+        }
+    }
+
+    function adaptPolygonCacheToRenderTime(renderMs: number) {
+        if (renderMs < 1200 || drawnPolygons.size <= activePolygonIds.size) return;
+        polygonCacheLimit = Math.max(activePolygonIds.size, Math.floor(polygonCacheLimit * 0.8));
+        polygonQueryCacheLimit = Math.max(2, polygonQueryCacheLimit - 1);
+    }
+
     async function fetchAndDrawPolygons() {
         if (!map) return;
 
@@ -620,14 +738,22 @@
         const thisController = fetchAbortController;
         const signal = thisController.signal;
 
-        const { minLat, minLng, maxLat, maxLng } = getPaddedBounds();
+        const requestBounds = getPaddedBounds();
+        const { minLat, minLng, maxLat, maxLng } = requestBounds;
 
         if ((maxLng - minLng) > MAX_BBOX_DEGREES || (maxLat - minLat) > MAX_BBOX_DEGREES) {
             // 너무 축소된 상태 - 전국 단위 조회는 무거우니 건너뛰고 기존 폴리곤만 정리
-            for (const [key, polys] of drawnPolygons) {
-                polys.forEach(p => p.setMap(null));
+            hideActivePolygons();
+            return;
+        }
+
+        const cachedQuery = findCachedPolygonQuery(requestBounds);
+        if (cachedQuery) {
+            activatePolygonIds(cachedQuery.ids);
+            if (!polygonsFetchedOnce) {
+                polygonsFetchedOnce = true;
+                dispatch('polygonsfetched');
             }
-            drawnPolygons.clear();
             return;
         }
 
@@ -648,11 +774,16 @@
             if (signal.aborted) return;
 
             const incomingIds = new Set<string>();
+            const renderStartedAt = performance.now();
 
             data.forEach((item: any) => {
                 const key = String(item.id);
                 incomingIds.add(key);
-                if (drawnPolygons.has(key)) return;
+                const cached = drawnPolygons.get(key);
+                if (cached) {
+                    cached.lastUsedAt = Date.now();
+                    return;
+                }
                 const paths = parseGeoJSON(item.geometry);
                 const color = colorForSpecies(item.species);
                 const newPolys: kakao.maps.Polygon[] = [];
@@ -692,15 +823,13 @@
                         newPolys.push(polygon);
                     }
                 });
-                drawnPolygons.set(key, newPolys);
+                drawnPolygons.set(key, { polygons: newPolys, lastUsedAt: Date.now() });
             });
 
-            for (const [key, polys] of drawnPolygons) {
-                if (!incomingIds.has(key)) {
-                    polys.forEach(p => p.setMap(null));
-                    drawnPolygons.delete(key);
-                }
-            }
+            activatePolygonIds(incomingIds);
+            rememberPolygonQuery(requestBounds, incomingIds);
+            adaptPolygonCacheToRenderTime(performance.now() - renderStartedAt);
+            evictUnusedPolygons();
 
             if (!polygonsFetchedOnce) {
                 polygonsFetchedOnce = true;
@@ -929,6 +1058,7 @@
     }
 
     onMount(() => {
+        configurePolygonCacheForDevice();
         // PC(769px 이상)에서는 범례를 기본으로 펼쳐서 보여줌 (모바일은 접힌 상태 + 스와이프 힌트 유지)
         if (window.matchMedia('(min-width: 769px)').matches) {
             legendExpanded = true;
@@ -947,6 +1077,10 @@
         };
         document.head.appendChild(script);
         return () => {
+            fetchAbortController?.abort();
+            hideActivePolygons();
+            drawnPolygons.clear();
+            polygonQueryCache = [];
             stopHeading();
             if (mapResizeObserver) mapResizeObserver.disconnect();
             if (interactionUnlockTimer) clearTimeout(interactionUnlockTimer);
