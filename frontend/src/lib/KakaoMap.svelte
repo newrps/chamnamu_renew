@@ -54,7 +54,7 @@
     let legendExpanded = false;
 
     // 범례 좌우 스와이프로 숨기기/보이기
-    let legendHidden = false;
+    export let legendHidden = false;
     let legendSwipeStartX = 0;
     let legendSwiping = false;
 

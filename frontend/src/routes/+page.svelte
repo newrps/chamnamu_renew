@@ -170,6 +170,63 @@
     let currentY = 0;
     let isDragging = false;
 
+    // 모바일 좌우 컨트롤 묶음 스와이프
+    let leftControlsHidden = false;
+    let rightControlsHidden = false;
+    let controlSwipeSide: 'left' | 'right' | null = null;
+    let controlSwipeStartX = 0;
+    let controlSwipeStartY = 0;
+    let controlSwipeTriggered = false;
+
+    function setControlsHidden(side: 'left' | 'right', hidden: boolean) {
+        if (side === 'left') {
+            leftControlsHidden = hidden;
+            if (hidden) showCollectingPanel = false;
+        } else {
+            rightControlsHidden = hidden;
+            if (hidden) showSaveForm = false;
+        }
+    }
+
+    function handleControlSwipeStart(event: TouchEvent, side: 'left' | 'right') {
+        if (event.touches.length !== 1) return;
+        if ((event.target as HTMLElement).closest('input')) return;
+        controlSwipeSide = side;
+        controlSwipeStartX = event.touches[0].clientX;
+        controlSwipeStartY = event.touches[0].clientY;
+        controlSwipeTriggered = false;
+        document.addEventListener('touchmove', handleControlSwipeMove, { passive: false });
+        document.addEventListener('touchend', handleControlSwipeEnd, { once: true });
+        document.addEventListener('touchcancel', handleControlSwipeEnd, { once: true });
+    }
+
+    function handleControlSwipeMove(event: TouchEvent) {
+        if (!controlSwipeSide || event.touches.length !== 1) return;
+        if (controlSwipeTriggered) return;
+        const deltaX = event.touches[0].clientX - controlSwipeStartX;
+        const deltaY = event.touches[0].clientY - controlSwipeStartY;
+        if (Math.abs(deltaX) < 45 || Math.abs(deltaX) <= Math.abs(deltaY) * 1.2) return;
+
+        const shouldHide = controlSwipeSide === 'left' ? deltaX < 0 : deltaX > 0;
+        const shouldShow = controlSwipeSide === 'left' ? deltaX > 0 : deltaX < 0;
+        const isHidden = controlSwipeSide === 'left' ? leftControlsHidden : rightControlsHidden;
+        if ((!isHidden && shouldHide) || (isHidden && shouldShow)) {
+            event.preventDefault();
+            controlSwipeTriggered = true;
+            setControlsHidden(controlSwipeSide, !isHidden);
+        }
+    }
+
+    function handleControlSwipeEnd(event?: Event) {
+        if (controlSwipeTriggered) event?.preventDefault();
+        controlSwipeSide = null;
+        controlSwipeTriggered = false;
+        document.removeEventListener('touchmove', handleControlSwipeMove);
+        document.removeEventListener('touchend', handleControlSwipeEnd);
+        document.removeEventListener('touchcancel', handleControlSwipeEnd);
+    }
+
+
     // 광고 배너 타입 정의
     interface AdBanner {
         type: 'text' | 'image';
@@ -651,7 +708,12 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        transition: background 0.2s;
+        transition: background 0.2s, transform 0.28s ease, opacity 0.2s ease;
+    }
+    .collecting-fab.left-controls-hidden {
+        transform: translateX(-80px);
+        opacity: 0;
+        pointer-events: none;
     }
     .collecting-fab.active {
         background: #1b5e20;
@@ -734,6 +796,37 @@
     .satellite-fab.active {
         background: #1a73e8;
         box-shadow: 0 2px 12px rgba(26,115,232,0.5);
+    }
+
+    .right-controls-layer {
+        position: fixed;
+        inset: 0;
+        z-index: 160;
+        pointer-events: none;
+        transition: transform 0.28s ease;
+        will-change: transform;
+    }
+    .right-controls-layer > * {
+        pointer-events: auto;
+    }
+    .right-controls-layer.hidden {
+        transform: translateX(calc(100% - 22px));
+    }
+    .right-controls-edge-tab {
+        position: absolute;
+        left: 0;
+        top: 52%;
+        transform: translateY(-50%);
+        width: 22px;
+        height: 64px;
+        padding: 0;
+        border: 0;
+        border-radius: 10px 0 0 10px;
+        background: rgba(0, 0, 0, 0.62);
+        color: white;
+        font-size: 13px;
+        box-shadow: -2px 0 8px rgba(0, 0, 0, 0.2);
+        touch-action: pan-y;
     }
 
     .search-results-list {
@@ -1315,6 +1408,7 @@
             bind:this={mapComponent}
             bind:isSatellite
             bind:roadviewMode
+            bind:legendHidden={leftControlsHidden}
             legendBottom={(showAdBanner ? 116 : 20) + 56}
             on:searchresults={onSearchResults}
             on:headingupdate={onHeadingUpdate}
@@ -1326,6 +1420,21 @@
             on:polygonsfetched={() => { polygonsReady = true; }}
         />
 
+        <!-- 왼쪽 메뉴: 채집 예보 FAB + KakaoMap 수종 범례 -->
+        <button
+            class="collecting-fab {showCollectingPanel ? 'active' : ''} {leftControlsHidden ? 'left-controls-hidden' : ''}"
+            style="bottom: calc({showAdBanner ? 116 : 20}px + env(safe-area-inset-bottom, 0px));"
+            on:touchstart={(event) => handleControlSwipeStart(event, 'left')}
+            on:click={() => showCollectingPanel = !showCollectingPanel}
+            title="채집 예보"
+        >🪲</button>
+
+        <div
+            role="group"
+            aria-label="오른쪽 지도 메뉴"
+            class="right-controls-layer {rightControlsHidden ? 'hidden' : ''}"
+            on:touchstart={(event) => handleControlSwipeStart(event, 'right')}
+        >
         <!-- 저장 위치 FAB (로그인 + 나침반 활성 시) -->
         {#if $authUser && isHeadingActive}
             {#if showSaveForm}
@@ -1354,14 +1463,6 @@
                 </svg>
             </button>
         {/if}
-
-        <!-- 채집 예보 FAB -->
-        <button
-            class="collecting-fab {showCollectingPanel ? 'active' : ''}"
-            style="bottom: calc({showAdBanner ? 116 : 20}px + env(safe-area-inset-bottom, 0px));"
-            on:click={() => showCollectingPanel = !showCollectingPanel}
-            title="채집 예보"
-        >🪲</button>
 
         <!-- 나침반 floating 버튼 -->
         <button
@@ -1404,6 +1505,16 @@
             on:click={() => mapComponent.toggleRoadview()}
             title={roadviewMode ? '로드뷰 끄기' : '로드뷰 켜기'}
         >🚶</button>
+
+        {#if rightControlsHidden}
+            <button
+                class="right-controls-edge-tab"
+                on:click={() => setControlsHidden('right', false)}
+                title="오른쪽 메뉴 보이기"
+                aria-label="오른쪽 메뉴 보이기"
+            >◀</button>
+        {/if}
+        </div>
 
         <!-- 채집 예보 패널 -->
         <CollectingForecast
