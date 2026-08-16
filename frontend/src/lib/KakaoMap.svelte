@@ -144,6 +144,8 @@
     let continuousHeading = 0;
     let appliedRotationAngle = 0; // mapContainer에 실제로 적용된 CSS 회전각 (드래그 보정 계산에 사용)
     let rafId: number | null = null;
+    let gestureActive = false;
+    let pendingNorthUpAfterGesture = false;
 
     // 회전된 사각형(지도 컨테이너)이 원래 화면 영역을 모서리까지 완전히 덮으려면 필요한 최소 확대 배율.
     // 화면이 정사각형이 아니라서(특히 세로가 긴 모바일) 고정 배율로는 45도 부근에서 모서리가 비어 보였음
@@ -220,6 +222,10 @@
         if (diff > 180) diff -= 360;
         if (diff < -180) diff += 360;
         continuousHeading += diff;
+
+        // 카카오맵이 드래그/줌 좌표를 계산하는 도중 바깥 CSS 좌표계를 바꾸면 중심점이 튄다.
+        // 센서 값은 계속 갱신하되 화면 변환은 제스처가 끝날 때까지 그대로 고정한다.
+        if (gestureActive) return;
 
         // 재중심(팔로잉) 여부와 상관없이 현재 모드의 지도/마커 회전을 항상 실시간으로 반영한다.
         if (rafId !== null) cancelAnimationFrame(rafId);
@@ -405,6 +411,8 @@
     export function setHeadingMode(mode: ActiveHeadingMode) {
         if (!isHeadingActive) return;
         headingMode = mode;
+        gestureActive = false;
+        pendingNorthUpAfterGesture = false;
         dispatch('headingmodechange', { mode: headingMode });
         updateHeadingMarkerAppearance();
         applyMapRotation(currentHeading);
@@ -445,6 +453,8 @@
         continuousHeading = 0;
         appliedRotationAngle = 0;
         appliedRotationScale = 1;
+        gestureActive = false;
+        pendingNorthUpAfterGesture = false;
         absoluteOrientationReceived = false;
         if (mapContainer) {
             mapContainer.style.transition = '';
@@ -456,33 +466,36 @@
         dispatch('headingstop');
     }
 
-    // 헤딩업 상태에서 사용자가 지도를 직접 조작하면 북쪽 고정 모드로 전환한다.
-    // 회전된 좌표계에서 카카오 기본 드래그/줌을 실행할 때 생기는 방향 오차를 피하고,
-    // 손을 뗀 뒤 지도가 다시 회전하면서 튀지 않도록 전환 상태를 유지한다.
+    // 헤딩업 상태에서 사용자 조작이 시작되면 현재 CSS 좌표계를 그대로 고정한다.
+    // 카카오맵이 제스처 좌표를 계산하는 중에 transform을 바꾸지 않는 것이 핵심이다.
     function enterGestureMode() {
         if (!isHeadingActive) return;
         if (isFollowing) pauseFollowing();
         if (headingMode !== 'heading-up') return;
 
-        headingMode = 'north-up';
-        dispatch('headingmodechange', { mode: headingMode });
-        updateHeadingMarkerAppearance();
+        gestureActive = true;
+        pendingNorthUpAfterGesture = true;
         if (rafId !== null) {
             cancelAnimationFrame(rafId);
             rafId = null;
         }
+    }
+
+    // 손가락/휠 조작이 완전히 끝난 뒤에만 북쪽 고정 모드와 마커 모양을 적용한다.
+    function exitGestureMode() {
+        if (!gestureActive) return;
+        gestureActive = false;
+        if (!pendingNorthUpAfterGesture || !isHeadingActive) return;
+
+        pendingNorthUpAfterGesture = false;
+        headingMode = 'north-up';
+        dispatch('headingmodechange', { mode: headingMode });
+        updateHeadingMarkerAppearance();
         if (overlayElement) {
-            overlayElement.style.transition = 'none';
+            overlayElement.style.transition = 'transform 0.25s ease-out';
             overlayElement.style.transform = `rotate(${continuousHeading}deg)`;
         }
-        if (mapContainer) {
-            // 회전과 모서리 보정용 확대를 한 프레임에 제거하면 지도가 순간이동해 보인다.
-            // 북쪽 고정 화면으로 짧게 보간하면서 카카오 기본 제스처로 넘긴다.
-            mapContainer.style.transition = 'transform 0.25s ease-out';
-            mapContainer.style.transform = 'rotate(0deg) scale(1)';
-        }
-        appliedRotationAngle = 0;
-        appliedRotationScale = 1;
+        applyContainerTransform(0, true);
     }
 
     // 손가락이 몇 개 닿아 있는지 직접 추적함 - 핀치(2손가락) 도중에 카카오가 dragend를 스퓨리어스하게
@@ -503,6 +516,7 @@
     function handleWindowTouchTrack(e: TouchEvent) {
         activeTouchCount = e.touches.length;
         if (activeTouchCount > 0) return;
+        exitGestureMode();
         fetchAndDrawPolygons();
         window.removeEventListener('touchmove', handleWindowTouchTrack);
         window.removeEventListener('touchend', handleWindowTouchTrack);
@@ -511,12 +525,14 @@
 
     // 데스크탑 휠 줌 - 휠 이벤트가 멈추고 일정 시간 지나면 제스처 종료로 간주
     let wheelIdleTimer: ReturnType<typeof setTimeout> | null = null;
+    let zoomIdleTimer: ReturnType<typeof setTimeout> | null = null;
     function handleContainerWheel() {
         if (!isHeadingActive) return;
         enterGestureMode();
         if (wheelIdleTimer) clearTimeout(wheelIdleTimer);
         wheelIdleTimer = setTimeout(() => {
             wheelIdleTimer = null;
+            exitGestureMode();
             fetchAndDrawPolygons();
         }, 400);
     }
@@ -545,9 +561,15 @@
                 // 핀치 도중에도 카카오가 dragend를 스퓨리어스하게 발생시킬 수 있어서, 손가락이
                 // 아직 남아있으면(활성 터치 추적값 기준) 무시 - 실제 종료는 touchend 쪽에서 처리함
                 if (activeTouchCount > 0) return;
+                exitGestureMode();
                 fetchAndDrawPolygons();
             });
             kakao.maps.event.addListener(map, 'zoom_changed', () => {
+                if (zoomIdleTimer) clearTimeout(zoomIdleTimer);
+                zoomIdleTimer = setTimeout(() => {
+                    zoomIdleTimer = null;
+                    if (activeTouchCount === 0) exitGestureMode();
+                }, 300);
                 fetchAndDrawPolygons();
             });
             kakao.maps.event.addListener(map, 'zoom_start', enterGestureMode);
