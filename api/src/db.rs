@@ -187,23 +187,27 @@ pub async fn create_new_chamnamu_data(pool: web::Data<Pool>, new_data: CreateCha
     Ok(id)
 }
 
-// 특정 좌표 주변의 맵 데이터를 조회하는 함수입니다.
-// wkt_point: 'POINT(x y)' 형식의 문자열, distance: 미터 단위의 거리
-pub async fn get_nearby_polygon_data(pool: web::Data<Pool>, lng: f64, lat:f64, distance: f64) -> Result<Vec<MapData>, Error> {
-    let distance = distance.min(10000.0);
+// 현재 지도 뷰포트(경계 상자) 안에 들어오는 맵 데이터를 조회하는 함수입니다.
+// 위/경도 기준 bbox가 너무 크면(너무 축소된 상태) 빈 목록을 반환합니다 - 프론트에서 "확대해주세요" 안내로 처리.
+const MAX_BBOX_DEGREES: f64 = 0.3; // 위/경도 한 변 기준 대략 30km 내외
+
+pub async fn get_polygons_in_bbox(
+    pool: web::Data<Pool>,
+    min_lng: f64, min_lat: f64, max_lng: f64, max_lat: f64,
+) -> Result<Vec<MapData>, Error> {
+    if (max_lng - min_lng) > MAX_BBOX_DEGREES || (max_lat - min_lat) > MAX_BBOX_DEGREES {
+        return Ok(vec![]);
+    }
+
     let client: Client = pool.get().await.map_err(ErrorInternalServerError)?;
     let query = r#"
         SELECT ogc_fid, ST_AsGeoJSON(ST_Transform(wkb_geometry, 4326), 6), koftr_nm
         FROM chamnamu_tree
-        WHERE ST_DWithin(
-            wkb_geometry,
-            ST_Transform(ST_SetSRID(ST_MakePoint($1, $2), 4326), 5179),
-            $3
-        )
-        LIMIT 2000
+        WHERE wkb_geometry && ST_Transform(ST_MakeEnvelope($1, $2, $3, $4, 4326), 5179)
+        LIMIT 5000
     "#;
 
-    let rows = client.query(query, &[&lng, &lat, &distance])
+    let rows = client.query(query, &[&min_lng, &min_lat, &max_lng, &max_lat])
         .await
         .map_err(ErrorInternalServerError)?;
 

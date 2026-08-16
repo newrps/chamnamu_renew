@@ -351,21 +351,23 @@
         return Math.sqrt(dLat * dLat + dLng * dLng);
     }
 
-    function getViewportRadius(): number {
-        const center = map.getCenter();
+    // 뷰포트가 이 정도(위/경도 기준)보다 넓게 확대축소되면 서버에서도 빈 목록을 주므로
+    // 굳이 요청을 안 보내고 화면 폴리곤만 정리한다 (백엔드 MAX_BBOX_DEGREES와 맞출 것)
+    const MAX_BBOX_DEGREES = 0.3;
+
+    function getPaddedBounds() {
         const bounds = map.getBounds() as any;
+        const sw = bounds.getSouthWest();
         const ne = bounds.getNorthEast();
-
-        const R = 6371000;
-        const lat1 = center.getLat() * Math.PI / 180;
-        const lat2 = ne.getLat() * Math.PI / 180;
-        const dLat = lat2 - lat1;
-        const dLng = (ne.getLng() - center.getLng()) * Math.PI / 180;
-
-        const a = Math.sin(dLat / 2) ** 2 +
-                  Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        return Math.min(R * c, 10000);
+        // 패닝 시 화면 가장자리에서 바로 데이터가 끊기지 않도록 15% 여유를 둔다
+        const padLat = (ne.getLat() - sw.getLat()) * 0.15;
+        const padLng = (ne.getLng() - sw.getLng()) * 0.15;
+        return {
+            minLat: sw.getLat() - padLat,
+            minLng: sw.getLng() - padLng,
+            maxLat: ne.getLat() + padLat,
+            maxLng: ne.getLng() + padLng
+        };
     }
 
     async function fetchAndDrawPolygons() {
@@ -376,11 +378,18 @@
         const thisController = fetchAbortController;
         const signal = thisController.signal;
 
-        const center = map.getCenter();
-        const lng = center.getLng();
-        const lat = center.getLat();
-        const distance = getViewportRadius();
-        const apiUrl = `${VITE_API_BASE_URL}/api/polygon/nearby?lng=${lng}&lat=${lat}&distance=${distance}`;
+        const { minLat, minLng, maxLat, maxLng } = getPaddedBounds();
+
+        if ((maxLng - minLng) > MAX_BBOX_DEGREES || (maxLat - minLat) > MAX_BBOX_DEGREES) {
+            // 너무 축소된 상태 - 전국 단위 조회는 무거우니 건너뛰고 기존 폴리곤만 정리
+            for (const [key, polys] of drawnPolygons) {
+                polys.forEach(p => p.setMap(null));
+            }
+            drawnPolygons.clear();
+            return;
+        }
+
+        const apiUrl = `${VITE_API_BASE_URL}/api/polygon/nearby?minLng=${minLng}&minLat=${minLat}&maxLng=${maxLng}&maxLat=${maxLat}`;
 
         let timedOut = false;
         const timeoutId = setTimeout(() => {

@@ -21,11 +21,16 @@ async fn get_nearby_data(
     pool: web::Data<Pool>,
     query: web::Query<std::collections::HashMap<String, String>>,
 ) -> Result<HttpResponse> {
-    let lng: f64 = query.get("lng").expect("Missing lng").parse().expect("Invalid lng");
-    let lat: f64 = query.get("lat").expect("Missing lat").parse().expect("Invalid lat");
-    let distance_str = query.get("distance").ok_or_else(|| ErrorBadRequest("Missing distance"))?;
-    let distance = distance_str.parse::<f64>().map_err(|_| ErrorBadRequest("Invalid distance"))?;
-    let list = db::get_nearby_polygon_data(pool, lng, lat, distance).await?;
+    fn parse_f64(query: &std::collections::HashMap<String, String>, key: &str) -> Result<f64> {
+        let raw = query.get(key).ok_or_else(|| ErrorBadRequest(format!("Missing {key}")))?;
+        raw.parse::<f64>().map_err(|_| ErrorBadRequest(format!("Invalid {key}")))
+    }
+
+    let min_lng = parse_f64(&query, "minLng")?;
+    let min_lat = parse_f64(&query, "minLat")?;
+    let max_lng = parse_f64(&query, "maxLng")?;
+    let max_lat = parse_f64(&query, "maxLat")?;
+    let list = db::get_polygons_in_bbox(pool, min_lng, min_lat, max_lng, max_lat).await?;
     Ok(HttpResponse::Ok().json(list))
 }
 
