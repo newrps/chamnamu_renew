@@ -197,7 +197,10 @@
         if (diff < -180) diff += 360;
         continuousHeading += diff;
 
-        // 재중심(팔로잉) 여부와 상관없이 회전 자체는 항상 실시간으로 반영 - 화면을 옮겨서 보고 있어도 방향은 계속 맞아야 함
+        // 재중심(팔로잉) 여부와 상관없이 회전 자체는 항상 실시간으로 반영 - 화면을 옮겨서 보고 있어도 방향은 계속 맞아야 함.
+        // 단, 드래그/핀치 제스처 도중엔 화면 회전을 잠깐 멈춤 - 손으로 폰을 쥐고 움직이는 동안
+        // 나침반 값이 미세하게 흔들려서 드래그 중간에 회전이 계속 바뀌면 궤적이 휘어져 보이는 문제가 있었음
+        if (customDragActive || pinchActive) return;
         if (rafId !== null) cancelAnimationFrame(rafId);
         const angle = continuousHeading;
         rafId = requestAnimationFrame(() => {
@@ -509,6 +512,7 @@
     function customDragEnd() {
         if (!customDragActive) return;
         customDragActive = false;
+        if (isHeadingActive) applyMapRotation(currentHeading); // 드래그 중 멈춰뒀던 회전을 최신값으로 즉시 반영
         fetchAndDrawPolygons();
     }
 
@@ -567,7 +571,11 @@
         pinchActive = false;
         pinchStartDist = 0;
         pinchLiveScale = 1;
-        applyContainerTransform(appliedRotationAngle, true);
+        if (isHeadingActive) {
+            applyMapRotation(currentHeading); // 핀치 중 멈춰뒀던 회전을 최신값으로 즉시 반영
+        } else {
+            applyContainerTransform(appliedRotationAngle, true);
+        }
         fetchAndDrawPolygons();
     }
 
