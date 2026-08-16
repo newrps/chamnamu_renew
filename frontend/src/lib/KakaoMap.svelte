@@ -109,7 +109,6 @@
     let isHeadingActive = false;
     // 추적 중 지도를 직접 드래그하면 재중심/회전을 멈추고(다음지도 방식), 나침반 버튼으로 다시 재중심함
     let isFollowing = true;
-    let dragStopHeadingTimer: ReturnType<typeof setTimeout> | null = null;
     let programmaticPanTimer: ReturnType<typeof setTimeout> | null = null;
     let isProgrammaticPan = false;
     let watchId: number | null = null;
@@ -128,12 +127,10 @@
     let locationOverlay: any = null;
     let overlayElement: HTMLDivElement | null = null;
 
-    let appliedRotationScale = 1; // mapContainer에 실제로 적용된 확대 배율 (드래그 보정 계산에 사용)
-    // 임시 디버그 표시용 - 드래그/줌 보정 버그를 실제 기기에서 확인하기 위한 값들
-    let debugScreenDx = 0, debugScreenDy = 0, debugInternalDx = 0, debugInternalDy = 0;
-    let debugPinchRatio = 1, debugPinchTargetLevel = 0;
-    let debugDragStartX = 0, debugDragStartY = 0, debugDragEventCount = 0;
-    let debugCumScreenX = 0, debugCumScreenY = 0, debugCumInternalX = 0, debugCumInternalY = 0;
+    let appliedRotationScale = 1; // mapContainer에 실제로 적용된 확대 배율
+    // 드래그/핀치/휠 제스처 도중엔 지도를 잠깐 회전 안 된 상태로 되돌려서 카카오 네이티브 드래그/줌에 맡김 -
+    // 회전된 채로 커스텀 좌표변환을 직접 계산하면 방향/속도가 계속 미묘하게 어긋나는 문제가 있었음
+    let gestureActive = false;
     let currentHeading = 0;
     let continuousHeading = 0;
     let appliedRotationAngle = 0; // mapContainer에 실제로 적용된 CSS 회전각 (드래그 보정 계산에 사용)
@@ -178,12 +175,9 @@
         return paths;
     }
 
-    // 핀치줌 도중 정수 레벨 사이를 부드럽게 이어 보이도록 얹는 임시 CSS 배율 (제스처 끝나면 1로 리셋)
-    let pinchLiveScale = 1;
-
     function applyContainerTransform(angle: number, withTransition: boolean) {
         if (!mapContainer) return;
-        const scale = coverageScale(angle) * pinchLiveScale;
+        const scale = coverageScale(angle);
         mapContainer.style.transition = withTransition ? 'transform 0.2s linear' : 'none';
         mapContainer.style.transform = `rotate(${angle}deg) scale(${scale})`;
         mapContainer.style.transformOrigin = '50% 50%';
@@ -200,9 +194,8 @@
         continuousHeading += diff;
 
         // 재중심(팔로잉) 여부와 상관없이 회전 자체는 항상 실시간으로 반영 - 화면을 옮겨서 보고 있어도 방향은 계속 맞아야 함.
-        // 단, 드래그/핀치 제스처 도중엔 화면 회전을 잠깐 멈춤 - 손으로 폰을 쥐고 움직이는 동안
-        // 나침반 값이 미세하게 흔들려서 드래그 중간에 회전이 계속 바뀌면 궤적이 휘어져 보이는 문제가 있었음
-        if (customDragActive || pinchActive) return;
+        // 단, 드래그/핀치/휠 제스처 도중엔 화면이 회전 안 된 상태로 고정되어 있으므로 건드리지 않음
+        if (gestureActive) return;
         if (rafId !== null) cancelAnimationFrame(rafId);
         const angle = continuousHeading;
         rafId = requestAnimationFrame(() => {
@@ -316,12 +309,6 @@
 
         isHeadingActive = true;
         isFollowing = true;
-        // 지도가 CSS로 회전되어 있으면 카카오 기본 드래그/줌(회전을 모르고 화면 좌표 그대로 계산)이
-        // 어긋나서(드래그 방향이 틀리거나 줌이 엉뚱한 곳으로 튐) 직접 처리함
-        if (map) {
-            (map as any).setDraggable(false);
-            (map as any).setZoomable(false);
-        }
         startOrientationTracking();
         locating.set(true);
 
@@ -423,257 +410,65 @@
         continuousHeading = 0;
         appliedRotationAngle = 0;
         appliedRotationScale = 1;
-        pinchLiveScale = 1;
+        gestureActive = false;
         absoluteOrientationReceived = false;
         if (mapContainer) {
             mapContainer.style.transition = '';
             mapContainer.style.transform = '';
         }
-        if (map) {
-            (map as any).setDraggable(true);
-            (map as any).setZoomable(true);
-        }
-        pinchActive = false;
         lastPolygonUpdate = 0;
         lastCenter = null;
 
         dispatch('headingstop');
     }
 
-    // 지도가 CSS로 회전된 상태에서는 카카오 기본 드래그/줌(회전을 모르고 항상 북쪽 기준 화면 좌표로 계산)이
-    // 화면에 보이는 방향과 어긋나므로, 추적 중엔 기본 드래그/줌을 끄고(setDraggable/setZoomable(false)) 직접 처리함
-    const MIN_ZOOM_LEVEL = 1;
-    const MAX_ZOOM_LEVEL = 7;
-    let customDragActive = false;
-    let customDragLastX = 0;
-    let customDragLastY = 0;
-    let pinchActive = false;
-    let pinchStartDist = 0;
-    let pinchStartLevel = 3;
-
-    // panBy는 부드럽게(애니메이션으로) 움직이는 함수라 연속으로 자주 호출하면
-    // 매번 애니메이션이 도중에 끊기면서 실제로는 아주 조금만 움직인 것처럼 보임 -
-    // 화면 좌표 <-> 지도 좌표 변환(Projection)으로 직접 setCenter해서 즉시 이동시킴.
-    // map.getCenter()를 매번 새로 읽으면 setCenter()가 내부적으로 아직 반영되기 전(비동기/다음 프레임)일 때
-    // 오래된 중심좌표를 기준으로 다시 계산하게 돼서 빠르게 여러 번 호출할 때 이동량이 누락(언더슛)될 수 있음 -
-    // 그래서 제스처 시작 시점에만 한 번 읽고, 그 뒤로는 우리가 직접 누적해서 계산함
-    let dragCenterPoint: any = null;
-
-    function panByRotated(dx: number, dy: number) {
-        if (!map || !dragCenterPoint) return;
-        isProgrammaticPan = true;
-        const proj = (map as any).getProjection();
-        dragCenterPoint = new kakao.maps.Point(dragCenterPoint.x + dx, dragCenterPoint.y + dy);
-        const newCenter = proj.coordsFromContainerPoint(dragCenterPoint);
-        map.setCenter(newCenter);
-        if (programmaticPanTimer) clearTimeout(programmaticPanTimer);
-        programmaticPanTimer = setTimeout(() => {
-            isProgrammaticPan = false;
-        }, 600);
-    }
-
-    // 드래그 제스처 도중엔 회전각을 고정해서 사용 - 회전은 계속 실시간으로 반영되는데(헤딩 중),
-    // 폰을 손에 쥐고 드래그하는 동안 실제로 기기 방향(나침반)이 미세하게 계속 흔들려서
-    // 위/아래로 왔다갔다 할 때마다 매번 다른 각도로 보정되어 한쪽으로 계속 밀리는(누적 오차) 문제가 있었음
-    let dragRefAngle = 0;
-    let dragRefScale = 1;
-
-    // 화면(회전된 상태)에서 느낀 이동량을, 지도 내부의 회전 안 된 좌표계 기준 이동량으로 역변환
-    function rotatedPanDelta(screenDx: number, screenDy: number) {
-        const rad = dragRefAngle * Math.PI / 180;
-        const cos = Math.cos(rad);
-        const sin = Math.sin(rad);
-        return {
-            x: screenDx * cos + screenDy * sin,
-            y: -screenDx * sin + screenDy * cos
-        };
-    }
-
-    function customDragStart(clientX: number, clientY: number) {
-        if (!isHeadingActive || !map) return;
-        customDragActive = true;
-        customDragLastX = clientX;
-        customDragLastY = clientY;
-        dragRefAngle = appliedRotationAngle;
-        dragRefScale = appliedRotationScale;
-        dragCenterPoint = (map as any).getProjection().containerPointFromCoords(map.getCenter());
-        pendingDragDx = 0; pendingDragDy = 0;
-        if (dragRafId !== null) { cancelAnimationFrame(dragRafId); dragRafId = null; }
-        // 드래그 전체 구간 누적 디버그값 리셋 - 한 번의 드래그 동안 손가락 총 이동량 vs 실제 적용된 이동량 비교용
-        debugDragStartX = clientX; debugDragStartY = clientY;
-        debugDragEventCount = 0;
-        debugCumInternalX = 0; debugCumInternalY = 0;
+    // 드래그/핀치/휠 제스처 도중엔 화면을 회전 안 된(북쪽 고정) 상태로 잠깐 되돌려서
+    // 카카오 기본 드래그/줌(이미 검증된 네이티브 동작)에 그대로 맡김 - 회전된 채로 좌표를 직접
+    // 계산해서 처리하려 했더니 방향/속도가 계속 미묘하게 어긋나는 문제가 있었음. 제스처가 끝나면
+    // 다시 부드럽게 회전 상태로 복귀함
+    function enterGestureMode() {
+        if (!isHeadingActive || gestureActive) return;
+        gestureActive = true;
         if (isFollowing) pauseFollowing();
-    }
-
-    // 포인터 이벤트(터치/마우스)는 화면 주사율보다 훨씬 자주 발생할 수 있어서, 이벤트마다 바로
-    // setCenter를 부르면 한 프레임 안에 여러 번 호출되어 오히려 튀는(과하게 움직이는) 느낌이 있었음 -
-    // 그래서 프레임당 한 번만 실제로 적용되도록 pending 값에 모아뒀다가 rAF에서 한 번에 처리함
-    let pendingDragDx = 0;
-    let pendingDragDy = 0;
-    let dragRafId: number | null = null;
-
-    function flushPendingDrag() {
-        dragRafId = null;
-        if (pendingDragDx === 0 && pendingDragDy === 0) return;
-        const dx = pendingDragDx, dy = pendingDragDy;
-        pendingDragDx = 0; pendingDragDy = 0;
-        panByRotated(dx, dy);
-    }
-
-    function customDragMove(clientX: number, clientY: number) {
-        if (!customDragActive) return;
-        const screenDx = clientX - customDragLastX;
-        const screenDy = clientY - customDragLastY;
-        customDragLastX = clientX;
-        customDragLastY = clientY;
-        const delta = rotatedPanDelta(screenDx, screenDy);
-        // 지도 컨테이너가 확대돼 있어서, 화면상 이동량을 지도 내부 픽셀 단위로 환산
-        const internalDx = delta.x / dragRefScale;
-        const internalDy = delta.y / dragRefScale;
-        debugScreenDx = screenDx; debugScreenDy = screenDy;
-        debugInternalDx = internalDx; debugInternalDy = internalDy;
-        debugDragEventCount++;
-        debugCumInternalX += internalDx; debugCumInternalY += internalDy;
-        debugCumScreenX = clientX - debugDragStartX; debugCumScreenY = clientY - debugDragStartY;
-        // 드래그 방향으로 화면 내용이 손가락을 따라오도록 부호 반전
-        pendingDragDx += -internalDx;
-        pendingDragDy += -internalDy;
-        if (dragRafId === null) {
-            dragRafId = requestAnimationFrame(flushPendingDrag);
+        if (mapContainer) {
+            mapContainer.style.transition = 'none';
+            mapContainer.style.transform = 'none';
         }
     }
 
-    function customDragEnd() {
-        if (!customDragActive) return;
-        customDragActive = false;
-        if (dragRafId !== null) {
-            cancelAnimationFrame(dragRafId);
-            dragRafId = null;
-        }
-        flushPendingDrag(); // 마지막 남은 이동량 반영
-        dragCenterPoint = null;
-        if (isHeadingActive) applyMapRotation(currentHeading); // 드래그 중 멈춰뒀던 회전을 최신값으로 즉시 반영
-        fetchAndDrawPolygons();
+    function exitGestureMode() {
+        if (!gestureActive) return;
+        gestureActive = false;
+        if (isHeadingActive) applyMapRotation(currentHeading);
     }
 
-    function handleContainerMouseDown(e: MouseEvent) {
-        if (!isHeadingActive) return;
-        customDragStart(e.clientX, e.clientY);
-        window.addEventListener('mousemove', handleWindowMouseMove);
-        window.addEventListener('mouseup', handleWindowMouseUp, { once: true });
-    }
-    function handleWindowMouseMove(e: MouseEvent) {
-        customDragMove(e.clientX, e.clientY);
-    }
-    function handleWindowMouseUp() {
-        customDragEnd();
-        window.removeEventListener('mousemove', handleWindowMouseMove);
-    }
-
-    // 회전 중엔 카카오 기본 줌(핀치/휠)이 어디를 기준으로 확대할지 화면 좌표로 계산하다가
-    // 회전된 화면과 어긋나서 엉뚱한 곳으로 튀는 문제가 있었음 - anchor 없이 setLevel만 호출해서
-    // 항상 "현재 지도 중심" 기준으로 확대/축소함 (회전 중심=화면 중심이라 항상 안전함)
-    function touchDistance(t0: Touch, t1: Touch) {
-        const dx = t1.clientX - t0.clientX;
-        const dy = t1.clientY - t0.clientY;
-        return Math.sqrt(dx * dx + dy * dy);
-    }
-
-    function startPinch(t0: Touch, t1: Touch) {
-        if (!map) return;
-        pinchActive = true;
-        pinchStartDist = touchDistance(t0, t1);
-        pinchStartLevel = map.getLevel();
-    }
-
-    function updatePinch(t0: Touch, t1: Touch) {
-        if (!map || pinchStartDist <= 0) return;
-        const dist = touchDistance(t0, t1);
-        const ratio = dist / pinchStartDist;
-        // 카카오 레벨은 낮을수록 확대(줌인) - 손가락을 벌리면(ratio>1) 레벨을 낮춤. 정수 레벨이 아니라
-        // 연속값(rawTarget)으로 계산해서, 실제 레벨(정수)로 스냅하기 전까지의 차이를 CSS 확대로 보여줌
-        // -> 카카오 레벨 전환이 매번 뚝뚝 끊기지 않고 부드럽게 이어져 보임
-        const rawTarget = pinchStartLevel - Math.log2(ratio);
-        let targetLevel = Math.round(rawTarget);
-        targetLevel = Math.max(MIN_ZOOM_LEVEL, Math.min(MAX_ZOOM_LEVEL, targetLevel));
-        if (targetLevel !== map.getLevel()) {
-            map.setLevel(targetLevel);
-        }
-        const committedLevel = map.getLevel();
-        pinchLiveScale = Math.pow(2, committedLevel - rawTarget);
-        applyContainerTransform(appliedRotationAngle, false);
-        debugPinchRatio = ratio;
-        debugPinchTargetLevel = targetLevel;
-    }
-
-    function endPinch() {
-        if (!pinchActive) return;
-        pinchActive = false;
-        pinchStartDist = 0;
-        pinchLiveScale = 1;
-        if (isHeadingActive) {
-            applyMapRotation(currentHeading); // 핀치 중 멈춰뒀던 회전을 최신값으로 즉시 반영
-        } else {
-            applyContainerTransform(appliedRotationAngle, true);
-        }
-        fetchAndDrawPolygons();
-    }
-
-    function handleContainerWheel(e: WheelEvent) {
-        if (!isHeadingActive || !map) return;
-        e.preventDefault();
-        const level = map.getLevel();
-        const newLevel = Math.max(MIN_ZOOM_LEVEL, Math.min(MAX_ZOOM_LEVEL, level + (e.deltaY > 0 ? 1 : -1)));
-        if (newLevel !== level) map.setLevel(newLevel);
-    }
-
+    // 핀치줌(두 손가락)은 touchstart 시점에 바로 알 수 있어서 직접 감지 - 한 손가락 드래그는
+    // 탭과 구분이 필요해서 카카오 자체 dragstart/dragend 이벤트(진짜 드래그일 때만 발생)에 맡김
     function handleContainerTouchStart(e: TouchEvent) {
-        if (!isHeadingActive) return;
-        if (e.touches.length === 2) {
-            startPinch(e.touches[0], e.touches[1]);
-            window.addEventListener('touchmove', handleWindowTouchMove, { passive: false });
-            window.addEventListener('touchend', handleWindowTouchEnd);
-            window.addEventListener('touchcancel', handleWindowTouchEnd);
-            return;
-        }
-        if (e.touches.length !== 1) return;
-        customDragStart(e.touches[0].clientX, e.touches[0].clientY);
-        window.addEventListener('touchmove', handleWindowTouchMove, { passive: false });
+        if (!isHeadingActive || e.touches.length !== 2) return;
+        enterGestureMode();
         window.addEventListener('touchend', handleWindowTouchEnd);
         window.addEventListener('touchcancel', handleWindowTouchEnd);
     }
-    function handleWindowTouchMove(e: TouchEvent) {
-        if (e.touches.length === 2) {
-            if (customDragActive) customDragActive = false; // 드래그 중 손가락이 늘면 핀치로 전환
-            if (!pinchActive) startPinch(e.touches[0], e.touches[1]);
-            e.preventDefault();
-            updatePinch(e.touches[0], e.touches[1]);
-            return;
-        }
-        if (e.touches.length === 1) {
-            if (pinchActive) {
-                // 핀치 중 손가락 하나를 떼면 남은 손가락으로 드래그 재개
-                endPinch();
-                customDragStart(e.touches[0].clientX, e.touches[0].clientY);
-            }
-            if (!customDragActive) return;
-            e.preventDefault();
-            customDragMove(e.touches[0].clientX, e.touches[0].clientY);
-        }
-    }
     function handleWindowTouchEnd(e: TouchEvent) {
-        if (e.touches.length === 1) {
-            endPinch();
-            customDragStart(e.touches[0].clientX, e.touches[0].clientY);
-            return;
-        }
-        if (e.touches.length > 0) return;
-        customDragEnd();
-        endPinch();
-        window.removeEventListener('touchmove', handleWindowTouchMove);
+        if (e.touches.length > 0) return; // 손가락이 남아있으면(핀치->한손가락 드래그 전환 등) 계속 유지
+        exitGestureMode();
+        fetchAndDrawPolygons();
         window.removeEventListener('touchend', handleWindowTouchEnd);
         window.removeEventListener('touchcancel', handleWindowTouchEnd);
+    }
+
+    // 데스크탑 휠 줌 - 휠 이벤트가 멈추고 일정 시간 지나면 제스처 종료로 간주
+    let wheelIdleTimer: ReturnType<typeof setTimeout> | null = null;
+    function handleContainerWheel() {
+        if (!isHeadingActive) return;
+        enterGestureMode();
+        if (wheelIdleTimer) clearTimeout(wheelIdleTimer);
+        wheelIdleTimer = setTimeout(() => {
+            wheelIdleTimer = null;
+            exitGestureMode();
+            fetchAndDrawPolygons();
+        }, 400);
     }
 
     function initializeMap() {
@@ -688,29 +483,19 @@
 
             fetchAndDrawPolygons();
 
-            mapContainer.addEventListener('mousedown', handleContainerMouseDown);
             mapContainer.addEventListener('touchstart', handleContainerTouchStart, { passive: true });
-            mapContainer.addEventListener('wheel', handleContainerWheel, { passive: false });
+            mapContainer.addEventListener('wheel', handleContainerWheel, { passive: true });
 
-            kakao.maps.event.addListener(map, 'dragend', fetchAndDrawPolygons);
             kakao.maps.event.addListener(map, 'dragstart', () => {
                 // 우리 코드가 panTo()로 지도를 움직인 것이면(현재위치 추적 중 계속 발생) 무시
                 if (isProgrammaticPan) return;
-                // 추적 중이 아니거나 이미 일시정지 상태면 할 일 없음
-                if (!isHeadingActive || !isFollowing) return;
-                // 모바일 핀치줌 제스처가 시작될 때도 dragstart가 같이 발생해서, 줌인지 실제 드래그인지
-                // 잠깐 기다렸다가 판단함 (그 사이 zoom_changed가 오면 줌으로 간주하고 취소)
-                if (dragStopHeadingTimer) clearTimeout(dragStopHeadingTimer);
-                dragStopHeadingTimer = setTimeout(() => {
-                    dragStopHeadingTimer = null;
-                    pauseFollowing();
-                }, 150);
+                enterGestureMode();
+            });
+            kakao.maps.event.addListener(map, 'dragend', () => {
+                exitGestureMode();
+                fetchAndDrawPolygons();
             });
             kakao.maps.event.addListener(map, 'zoom_changed', () => {
-                if (dragStopHeadingTimer) {
-                    clearTimeout(dragStopHeadingTimer);
-                    dragStopHeadingTimer = null;
-                }
                 fetchAndDrawPolygons();
             });
             kakao.maps.event.addListener(map, 'click', hidePolygonInfo);
@@ -1096,14 +881,12 @@
             stopHeading();
             if (mapResizeObserver) mapResizeObserver.disconnect();
             if (mapContainer) {
-                mapContainer.removeEventListener('mousedown', handleContainerMouseDown);
                 mapContainer.removeEventListener('touchstart', handleContainerTouchStart);
                 mapContainer.removeEventListener('wheel', handleContainerWheel);
             }
-            window.removeEventListener('mousemove', handleWindowMouseMove);
-            window.removeEventListener('touchmove', handleWindowTouchMove);
             window.removeEventListener('touchend', handleWindowTouchEnd);
             window.removeEventListener('touchcancel', handleWindowTouchEnd);
+            if (wheelIdleTimer) clearTimeout(wheelIdleTimer);
         };
     });
 
@@ -1111,17 +894,6 @@
 
 <div style="position:relative;width:100%;height:100vh;overflow:hidden;">
     <div bind:this={mapContainer} style="width:100%;height:100%;"></div>
-
-    {#if isHeadingActive}
-    <div style="position:absolute;top:8px;left:8px;z-index:500;pointer-events:none;
-        background:rgba(0,0,0,0.75);color:#0f0;font-family:monospace;font-size:11px;
-        line-height:1.5;padding:6px 8px;border-radius:6px;white-space:pre;">
-angle={appliedRotationAngle.toFixed(1)} scale={appliedRotationScale.toFixed(2)}
-drag screen=({debugScreenDx.toFixed(0)},{debugScreenDy.toFixed(0)}) internal=({debugInternalDx.toFixed(1)},{debugInternalDy.toFixed(1)})
-drag누적(n={debugDragEventCount}) screen총=({debugCumScreenX.toFixed(0)},{debugCumScreenY.toFixed(0)}) internal총=({debugCumInternalX.toFixed(1)},{debugCumInternalY.toFixed(1)})
-pinch ratio={debugPinchRatio.toFixed(2)} targetLevel={debugPinchTargetLevel}
-    </div>
-    {/if}
 
     {#if $locating}
     <div style="position:absolute;bottom:80px;left:50%;transform:translateX(-50%);z-index:200;pointer-events:none;
