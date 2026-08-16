@@ -497,15 +497,49 @@
     }
 
     export let isSatellite = false;
-    export function setSatelliteView() {
+    export function toggleSatellite() {
         if (!map) return;
-        isSatellite = true;
-        map.setMapTypeId(kakao.maps.MapTypeId.HYBRID);
+        isSatellite = !isSatellite;
+        map.setMapTypeId(isSatellite ? kakao.maps.MapTypeId.HYBRID : kakao.maps.MapTypeId.ROADMAP);
     }
-    export function setRoadView() {
+
+    // 로드뷰: 도로 위 파란 선 표시 -> 클릭하면 그 지점 거리뷰(파노라마)를 보여줌
+    export let roadviewMode = false;
+    let roadviewOpen = false;
+    let roadviewContainer: HTMLElement;
+    let roadviewClient: any;
+    let roadviewInstance: any;
+    let roadviewClickListener: any;
+
+    export function toggleRoadview() {
         if (!map) return;
-        isSatellite = false;
-        map.setMapTypeId(kakao.maps.MapTypeId.ROADMAP);
+        roadviewMode = !roadviewMode;
+        if (roadviewMode) {
+            (map as any).addOverlayMapTypeId(kakao.maps.MapTypeId.ROADVIEW);
+            roadviewClickListener = kakao.maps.event.addListener(map, 'click', handleRoadviewMapClick);
+        } else {
+            (map as any).removeOverlayMapTypeId(kakao.maps.MapTypeId.ROADVIEW);
+            if (roadviewClickListener) kakao.maps.event.removeListener(map, 'click', roadviewClickListener);
+            closeRoadview();
+        }
+    }
+
+    function handleRoadviewMapClick(mouseEvent: any) {
+        if (!roadviewClient) roadviewClient = new kakao.maps.RoadviewClient();
+        const position = mouseEvent.latLng;
+        roadviewClient.getNearestPanoId(position, 50, (panoId: number | null) => {
+            if (!panoId) return;
+            roadviewOpen = true;
+            if (!roadviewInstance) {
+                roadviewInstance = new kakao.maps.Roadview(roadviewContainer);
+            }
+            roadviewInstance.setPanoId(panoId, position);
+            roadviewInstance.relayout();
+        });
+    }
+
+    export function closeRoadview() {
+        roadviewOpen = false;
     }
 
     export function getAddressFromCoords(lat: number, lng: number): Promise<string> {
@@ -663,6 +697,18 @@
                 padding:8px 6px;border-radius:0 10px 10px 0;font-size:12px;
                 touch-action:pan-y;cursor:pointer;">▶</div>
     {/if}
+
+    <div style="position:fixed;inset:0;z-index:400;display:{roadviewOpen ? 'block' : 'none'};background:#000;">
+        <div bind:this={roadviewContainer} style="width:100%;height:100%;"></div>
+        <button
+            on:click={closeRoadview}
+            style="position:absolute;top:16px;right:16px;z-index:401;
+                   width:40px;height:40px;border-radius:50%;border:none;
+                   background:rgba(0,0,0,0.6);color:white;font-size:18px;
+                   display:flex;align-items:center;justify-content:center;cursor:pointer;"
+            title="거리뷰 닫기"
+        >✕</button>
+    </div>
 </div>
 
 <style>

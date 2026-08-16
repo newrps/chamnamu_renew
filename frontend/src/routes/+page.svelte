@@ -15,6 +15,7 @@
     let isHeadingActive = false;
     let isGPSLocating = false; // GPS 정밀 위치 탐색 중
     let isSatellite = false;
+    let roadviewMode = false;
     let currentLocation = { lat: 0, lng: 0, heading: 0 };
 
     let showCollectingPanel = false;
@@ -1269,6 +1270,7 @@
         <KakaoMap
             bind:this={mapComponent}
             bind:isSatellite
+            bind:roadviewMode
             legendBottom={(showAdBanner ? 116 : 20) + 56}
             on:searchresults={onSearchResults}
             on:headingupdate={onHeadingUpdate}
@@ -1327,21 +1329,21 @@
             </svg>
         </button>
 
-        <!-- 위성지도 버튼 -->
+        <!-- 위성지도 토글 버튼 -->
         <button
             class="satellite-fab {isSatellite ? 'active' : ''}"
             style="bottom: calc({showAdBanner ? 116 : 20}px + 56px + env(safe-area-inset-bottom, 0px));"
-            on:click={() => mapComponent.setSatelliteView()}
-            title="위성 지도로 보기"
+            on:click={() => mapComponent.toggleSatellite()}
+            title={isSatellite ? '일반 지도로 보기' : '위성 지도로 보기'}
         >🛰️</button>
 
-        <!-- 도로(일반 지도) 버튼 -->
+        <!-- 로드뷰(거리뷰) 토글 버튼 -->
         <button
-            class="satellite-fab {!isSatellite ? 'active' : ''}"
+            class="satellite-fab {roadviewMode ? 'active' : ''}"
             style="bottom: calc({showAdBanner ? 116 : 20}px + 112px + env(safe-area-inset-bottom, 0px));"
-            on:click={() => mapComponent.setRoadView()}
-            title="일반 지도로 보기"
-        >🛣️</button>
+            on:click={() => mapComponent.toggleRoadview()}
+            title={roadviewMode ? '로드뷰 끄기' : '로드뷰 켜기'}
+        >🚶</button>
 
         <!-- 채집 예보 패널 -->
         <CollectingForecast
