@@ -1239,7 +1239,7 @@
     <div class="map-wrapper {showAdBanner ? 'with-ad' : ''}">
         <KakaoMap
             bind:this={mapComponent}
-            legendBottom={(showAdBanner ? 190 : 80) + 56}
+            legendBottom={(showAdBanner ? 116 : 20) + 56}
             on:searchresults={onSearchResults}
             on:headingupdate={onHeadingUpdate}
             on:headingstop={onHeadingStop}
@@ -1280,7 +1280,7 @@
         <!-- 채집 예보 FAB -->
         <button
             class="collecting-fab {showCollectingPanel ? 'active' : ''}"
-            style="bottom: calc({showAdBanner ? 190 : 80}px + env(safe-area-inset-bottom, 0px));"
+            style="bottom: calc({showAdBanner ? 116 : 20}px + env(safe-area-inset-bottom, 0px));"
             on:click={() => showCollectingPanel = !showCollectingPanel}
             title="채집 예보"
         >🪲</button>
@@ -1288,7 +1288,7 @@
         <!-- 나침반 floating 버튼 -->
         <button
             class="compass-fab {isHeadingActive ? 'active' : ''} {isGPSLocating ? 'locating' : ''}"
-            style="bottom: calc({showAdBanner ? 190 : 80}px + env(safe-area-inset-bottom, 0px));"
+            style="bottom: calc({showAdBanner ? 116 : 20}px + env(safe-area-inset-bottom, 0px));"
             on:click={toggleHeading}
             title={isHeadingActive ? '북쪽 추적 중지' : '북쪽 찾기'}
         >
