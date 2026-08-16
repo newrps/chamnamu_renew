@@ -338,47 +338,56 @@
         startOrientationTracking();
         locating.set(true);
 
+        let gpsFixed = false;
+        let freshPositionReceived = false;
+
+        const showPosition = (position: GeolocationPosition, updatePolygons: boolean) => {
+            if (!isHeadingActive) return;
+
+            if (!gpsFixed) {
+                gpsFixed = true;
+                dispatch('gpsfixed');
+            }
+            locating.set(false);
+
+            const lat = position.coords.latitude;
+            const lng = position.coords.longitude;
+            currentLat = lat;
+            currentLng = lng;
+
+            createOrUpdateLocationOverlay(lat, lng);
+            if (isFollowing) {
+                panToPosition(lat, lng);
+                if (updatePolygons) updatePolygonsIfNeeded(lat, lng);
+            }
+
+            const gpsHeading = position.coords.heading;
+            if (!absoluteOrientationReceived && gpsHeading !== null && gpsHeading !== undefined) {
+                currentHeading = gpsHeading;
+                applyMapRotation(gpsHeading);
+            }
+
+            dispatch('headingupdate', { lat, lng, heading: currentHeading, accuracy: position.coords.accuracy });
+        };
+
         navigator.geolocation.getCurrentPosition(
             (position) => {
-                const lat = position.coords.latitude;
-                const lng = position.coords.longitude;
-                currentLat = lat;
-                currentLng = lng;
-                panToPosition(lat, lng);
+                // 캐시된 빠른 위치로 마커를 먼저 보여준다. 먼저 도착한 실시간 위치는 덮어쓰지 않는다.
+                if (!freshPositionReceived) showPosition(position, false);
             },
             () => {},
             { enableHighAccuracy: false, maximumAge: 30000, timeout: 3000 }
         );
 
-        let gpsFixed = false;
         watchId = navigator.geolocation.watchPosition(
             (position) => {
-                if (!gpsFixed) {
-                    gpsFixed = true;
-                    dispatch('gpsfixed');
-                }
-                locating.set(false);
-                const lat = position.coords.latitude;
-                const lng = position.coords.longitude;
-                currentLat = lat;
-                currentLng = lng;
-
-                createOrUpdateLocationOverlay(lat, lng);
-                if (isFollowing) {
-                    panToPosition(lat, lng);
-                    updatePolygonsIfNeeded(lat, lng);
-                }
-
-                const gpsHeading = position.coords.heading;
-                if (!absoluteOrientationReceived && gpsHeading !== null && gpsHeading !== undefined) {
-                    currentHeading = gpsHeading;
-                    applyMapRotation(gpsHeading);
-                }
-
-                dispatch('headingupdate', { lat, lng, heading: currentHeading, accuracy: position.coords.accuracy });
+                freshPositionReceived = true;
+                showPosition(position, true);
             },
             (error) => {
                 console.error('위치 정보를 가져오는데 실패했습니다:', error);
+                // 빠른 위치가 이미 보이는 상태라면 고정밀 GPS의 일시적 실패로 추적 모드를 종료하지 않는다.
+                if (gpsFixed && error.code !== error.PERMISSION_DENIED) return;
                 alert('위치 정보를 가져올 수 없습니다.');
                 stopHeading();
             },
