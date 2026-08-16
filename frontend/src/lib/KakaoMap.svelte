@@ -264,6 +264,37 @@
         if (e.ctrlKey && e.cancelable) e.preventDefault();
     }
 
+    function isPointOnMap(clientX: number, clientY: number): boolean {
+        const element = document.elementFromPoint(clientX, clientY);
+        return element instanceof Element && element.closest('.kakao-map-surface') !== null;
+    }
+
+    // 두 손가락이 모두 실제 지도 위에 있을 때만 핀치 줌을 허용한다.
+    function blockPagePinchOutsideMap(e: TouchEvent) {
+        if (e.touches.length < 2) return;
+        const allTouchesOnMap = Array.from(e.touches)
+            .every(touch => isPointOnMap(touch.clientX, touch.clientY));
+        if (allTouchesOnMap) return;
+        if (e.cancelable) e.preventDefault();
+        e.stopImmediatePropagation();
+    }
+
+    // 데스크톱 트랙패드/브라우저의 Ctrl+휠 줌도 지도 밖에서는 차단한다.
+    function blockPageWheelZoomOutsideMap(e: WheelEvent) {
+        if (!e.ctrlKey) return;
+        const target = e.target instanceof Element ? e.target : null;
+        if (target?.closest('.kakao-map-surface')) return;
+        if (e.cancelable) e.preventDefault();
+        e.stopImmediatePropagation();
+    }
+
+    function blockPageGestureOutsideMap(e: Event) {
+        const target = e.target instanceof Element ? e.target : null;
+        if (target?.closest('.kakao-map-surface')) return;
+        if (e.cancelable) e.preventDefault();
+        e.stopImmediatePropagation();
+    }
+
     let polygonInfoOverlay: any = null;
     function showPolygonInfo(species: string | null | undefined, position: any) {
         const color = colorForSpecies(species);
@@ -1299,6 +1330,11 @@
 
     onMount(() => {
         configurePolygonCacheForDevice();
+        document.addEventListener('touchstart', blockPagePinchOutsideMap, { capture: true, passive: false });
+        document.addEventListener('touchmove', blockPagePinchOutsideMap, { capture: true, passive: false });
+        document.addEventListener('wheel', blockPageWheelZoomOutsideMap, { capture: true, passive: false });
+        document.addEventListener('gesturestart', blockPageGestureOutsideMap, { capture: true, passive: false });
+        document.addEventListener('gesturechange', blockPageGestureOutsideMap, { capture: true, passive: false });
         // PC(769px 이상)에서는 범례를 기본으로 펼쳐서 보여줌 (모바일은 접힌 상태 + 스와이프 힌트 유지)
         if (window.matchMedia('(min-width: 769px)').matches) {
             legendExpanded = true;
@@ -1317,6 +1353,11 @@
         };
         document.head.appendChild(script);
         return () => {
+            document.removeEventListener('touchstart', blockPagePinchOutsideMap, true);
+            document.removeEventListener('touchmove', blockPagePinchOutsideMap, true);
+            document.removeEventListener('wheel', blockPageWheelZoomOutsideMap, true);
+            document.removeEventListener('gesturestart', blockPageGestureOutsideMap, true);
+            document.removeEventListener('gesturechange', blockPageGestureOutsideMap, true);
             fetchAbortController?.abort();
             if (nearestSpeciesMessageTimer) clearTimeout(nearestSpeciesMessageTimer);
             if (nearestHighlightTimer) clearTimeout(nearestHighlightTimer);
@@ -1333,7 +1374,7 @@
 </script>
 
 <div bind:this={mapViewport} style="position:relative;width:100%;height:100vh;overflow:hidden;">
-    <div bind:this={mapContainer} style="position:absolute;left:50%;top:50%;transform:rotate(0deg);"></div>
+    <div class="kakao-map-surface" bind:this={mapContainer} style="position:absolute;left:50%;top:50%;transform:rotate(0deg);"></div>
 
     {#if interactionShieldActive}
     <div
