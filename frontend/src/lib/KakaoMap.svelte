@@ -388,10 +388,9 @@
     function setupMapResizeHandling() {
         if (!mapContainer || !map) return;
         mapResizeObserver = new ResizeObserver(() => {
-            if (!map) return;
-            const center = map.getCenter();
+            // 나침반/현재위치 추적 중엔 건드리지 않음 - relayout/setCenter가 추적을 끊어버리는 문제가 있었음
+            if (!map || isHeadingActive) return;
             (map as any).relayout();
-            map.setCenter(center);
         });
         mapResizeObserver.observe(mapContainer);
     }
