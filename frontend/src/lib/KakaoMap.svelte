@@ -42,6 +42,7 @@
     let nearestSpeciesMessageTimer: ReturnType<typeof setTimeout> | null = null;
     let pendingNearestPolygonId: string | null = null;
     let nearestHighlightTimer: ReturnType<typeof setTimeout> | null = null;
+    const visitedNearestPolygons = new Map<string, Set<string>>();
 
     // 참나무류: 채집지도의 핵심이라 선명한 색으로 표시
     const OAK_SPECIES = ['신갈나무', '굴참나무', '상수리나무', '기타참나무류'];
@@ -89,6 +90,7 @@
     }
 
     function toggleSpeciesHighlight(species: string) {
+        visitedNearestPolygons.delete(species);
         selectedSpecies = selectedSpecies === species ? null : species;
         refreshSpeciesHighlight();
     }
@@ -792,27 +794,38 @@
 
     async function moveToNearestSpecies(species: string) {
         if (!map || nearestSpeciesLoading) return;
+        if (selectedSpecies !== species) visitedNearestPolygons.delete(species);
         nearestSpeciesLoading = species;
         selectedSpecies = species;
         refreshSpeciesHighlight();
 
         const center = map.getCenter() as any;
+        const visitedIds = visitedNearestPolygons.get(species) ?? new Set<string>();
         const params = new URLSearchParams({
             species,
             lat: String(center.getLat()),
             lng: String(center.getLng())
         });
+        if (visitedIds.size > 0) params.set('excludeIds', Array.from(visitedIds).join(','));
 
         try {
             const response = await fetch(`${VITE_API_BASE_URL}/api/polygon/nearest?${params}`);
             if (response.status === 404) {
-                showNearestSpeciesMessage(`${species} 군락을 찾지 못했습니다.`);
+                if (visitedIds.size > 0) {
+                    visitedNearestPolygons.delete(species);
+                    showNearestSpeciesMessage(`주변의 ${species} 군락을 모두 확인했습니다.`);
+                } else {
+                    showNearestSpeciesMessage(`${species} 군락을 찾지 못했습니다.`);
+                }
                 return;
             }
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
             const result = await response.json();
-            pendingNearestPolygonId = String(result.id);
+            const resultId = String(result.id);
+            visitedIds.add(resultId);
+            visitedNearestPolygons.set(species, visitedIds);
+            pendingNearestPolygonId = resultId;
             if (isHeadingActive && isFollowing) pauseFollowing();
             map.setCenter(new kakao.maps.LatLng(result.lat, result.lng));
             if ((map as any).getLevel() > 4) (map as any).setLevel(4);
@@ -821,7 +834,8 @@
             const distanceText = distance < 1000
                 ? `${Math.round(distance)}m`
                 : `${(distance / 1000).toFixed(1)}km`;
-            showNearestSpeciesMessage(`가장 가까운 ${species} · ${distanceText}`);
+            const prefix = visitedIds.size > 1 ? '다음 가까운' : '가장 가까운';
+            showNearestSpeciesMessage(`${prefix} ${species} · ${distanceText}`);
 
             setTimeout(() => fetchAndDrawPolygons(), 120);
         } catch (error) {

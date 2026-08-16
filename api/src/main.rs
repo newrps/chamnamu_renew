@@ -39,6 +39,8 @@ struct NearestPolygonQuery {
     species: String,
     lat: f64,
     lng: f64,
+    #[serde(rename = "excludeIds")]
+    exclude_ids: Option<String>,
 }
 
 #[get("/api/polygon/nearest")]
@@ -53,11 +55,26 @@ async fn get_nearest_polygon(
         return Err(ErrorBadRequest("Invalid coordinates"));
     }
 
+    let excluded_ids = match query.exclude_ids.as_deref() {
+        Some(raw) if !raw.is_empty() => {
+            let parsed = raw.split(',')
+                .map(str::parse::<i32>)
+                .collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(|_| ErrorBadRequest("Invalid excludeIds"))?;
+            if parsed.len() > 100 {
+                return Err(ErrorBadRequest("Too many excludeIds"));
+            }
+            parsed
+        }
+        _ => vec![],
+    };
+
     match db::get_nearest_polygon_by_species(
         pool,
         query.lng,
         query.lat,
         query.species.trim(),
+        &excluded_ids,
     ).await? {
         Some(item) => Ok(HttpResponse::Ok().json(item)),
         None => Ok(HttpResponse::NotFound().finish()),

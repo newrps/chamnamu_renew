@@ -237,8 +237,10 @@ pub async fn get_nearest_polygon_by_species(
     lng: f64,
     lat: f64,
     species: &str,
+    excluded_ids: &[i32],
 ) -> Result<Option<NearestPolygon>, Error> {
     let client: Client = pool.get().await.map_err(ErrorInternalServerError)?;
+    let excluded_ids = excluded_ids.to_vec();
     let query = r#"
         WITH origin AS (
             SELECT ST_Transform(ST_SetSRID(ST_MakePoint($1, $2), 4326), 5179) AS geom
@@ -248,6 +250,7 @@ pub async fn get_nearest_polygon_by_species(
             FROM chamnamu_tree AS tree
             CROSS JOIN origin
             WHERE tree.koftr_nm = $3
+              AND NOT (tree.ogc_fid = ANY($4))
             ORDER BY tree.wkb_geometry <-> origin.geom
             LIMIT 64
         )
@@ -262,7 +265,7 @@ pub async fn get_nearest_polygon_by_species(
         LIMIT 1
     "#;
 
-    let row = client.query_opt(query, &[&lng, &lat, &species])
+    let row = client.query_opt(query, &[&lng, &lat, &species, &excluded_ids])
         .await
         .map_err(ErrorInternalServerError)?;
 
