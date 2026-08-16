@@ -463,9 +463,15 @@
         }, 600);
     }
 
+    // 드래그 제스처 도중엔 회전각을 고정해서 사용 - 회전은 계속 실시간으로 반영되는데(헤딩 중),
+    // 폰을 손에 쥐고 드래그하는 동안 실제로 기기 방향(나침반)이 미세하게 계속 흔들려서
+    // 위/아래로 왔다갔다 할 때마다 매번 다른 각도로 보정되어 한쪽으로 계속 밀리는(누적 오차) 문제가 있었음
+    let dragRefAngle = 0;
+    let dragRefScale = 1;
+
     // 화면(회전된 상태)에서 느낀 이동량을, 지도 내부의 회전 안 된 좌표계 기준 이동량으로 역변환
     function rotatedPanDelta(screenDx: number, screenDy: number) {
-        const rad = appliedRotationAngle * Math.PI / 180;
+        const rad = dragRefAngle * Math.PI / 180;
         const cos = Math.cos(rad);
         const sin = Math.sin(rad);
         return {
@@ -479,6 +485,8 @@
         customDragActive = true;
         customDragLastX = clientX;
         customDragLastY = clientY;
+        dragRefAngle = appliedRotationAngle;
+        dragRefScale = appliedRotationScale;
         if (isFollowing) pauseFollowing();
     }
 
@@ -490,8 +498,8 @@
         customDragLastY = clientY;
         const delta = rotatedPanDelta(screenDx, screenDy);
         // 지도 컨테이너가 확대돼 있어서, 화면상 이동량을 지도 내부 픽셀 단위로 환산
-        const internalDx = delta.x / appliedRotationScale;
-        const internalDy = delta.y / appliedRotationScale;
+        const internalDx = delta.x / dragRefScale;
+        const internalDy = delta.y / dragRefScale;
         debugScreenDx = screenDx; debugScreenDy = screenDy;
         debugInternalDx = internalDx; debugInternalDy = internalDy;
         // 드래그 방향으로 화면 내용이 손가락을 따라오도록 부호 반전
