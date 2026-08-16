@@ -453,14 +453,18 @@
 
     // panBy는 부드럽게(애니메이션으로) 움직이는 함수라 연속으로 자주 호출하면
     // 매번 애니메이션이 도중에 끊기면서 실제로는 아주 조금만 움직인 것처럼 보임 -
-    // 화면 좌표 <-> 지도 좌표 변환(Projection)으로 직접 setCenter해서 즉시 이동시킴
+    // 화면 좌표 <-> 지도 좌표 변환(Projection)으로 직접 setCenter해서 즉시 이동시킴.
+    // map.getCenter()를 매번 새로 읽으면 setCenter()가 내부적으로 아직 반영되기 전(비동기/다음 프레임)일 때
+    // 오래된 중심좌표를 기준으로 다시 계산하게 돼서 빠르게 여러 번 호출할 때 이동량이 누락(언더슛)될 수 있음 -
+    // 그래서 제스처 시작 시점에만 한 번 읽고, 그 뒤로는 우리가 직접 누적해서 계산함
+    let dragCenterPoint: any = null;
+
     function panByRotated(dx: number, dy: number) {
-        if (!map) return;
+        if (!map || !dragCenterPoint) return;
         isProgrammaticPan = true;
         const proj = (map as any).getProjection();
-        const centerPoint = proj.containerPointFromCoords(map.getCenter());
-        const newPoint = new kakao.maps.Point(centerPoint.x + dx, centerPoint.y + dy);
-        const newCenter = proj.coordsFromContainerPoint(newPoint);
+        dragCenterPoint = new kakao.maps.Point(dragCenterPoint.x + dx, dragCenterPoint.y + dy);
+        const newCenter = proj.coordsFromContainerPoint(dragCenterPoint);
         map.setCenter(newCenter);
         if (programmaticPanTimer) clearTimeout(programmaticPanTimer);
         programmaticPanTimer = setTimeout(() => {
@@ -486,12 +490,13 @@
     }
 
     function customDragStart(clientX: number, clientY: number) {
-        if (!isHeadingActive) return;
+        if (!isHeadingActive || !map) return;
         customDragActive = true;
         customDragLastX = clientX;
         customDragLastY = clientY;
         dragRefAngle = appliedRotationAngle;
         dragRefScale = appliedRotationScale;
+        dragCenterPoint = (map as any).getProjection().containerPointFromCoords(map.getCenter());
         // 드래그 전체 구간 누적 디버그값 리셋 - 한 번의 드래그 동안 손가락 총 이동량 vs 실제 적용된 이동량 비교용
         debugDragStartX = clientX; debugDragStartY = clientY;
         debugDragEventCount = 0;
@@ -521,6 +526,7 @@
     function customDragEnd() {
         if (!customDragActive) return;
         customDragActive = false;
+        dragCenterPoint = null;
         if (isHeadingActive) applyMapRotation(currentHeading); // 드래그 중 멈춰뒀던 회전을 최신값으로 즉시 반영
         fetchAndDrawPolygons();
     }
