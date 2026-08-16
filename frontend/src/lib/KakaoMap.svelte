@@ -106,6 +106,10 @@
         if (polygonInfoOverlay) polygonInfoOverlay.setMap(null);
     }
 
+    type HeadingMode = 'off' | 'north-up' | 'heading-up';
+    type ActiveHeadingMode = Exclude<HeadingMode, 'off'>;
+
+    let headingMode: HeadingMode = 'off';
     let isHeadingActive = false;
     // 추적 중 지도를 직접 드래그하면 재중심/회전을 멈추고(다음지도 방식), 나침반 버튼으로 다시 재중심함
     let isFollowing = true;
@@ -185,10 +189,27 @@
         appliedRotationScale = scale;
     }
 
+    function normalizeHeading(heading: number): number {
+        return ((heading % 360) + 360) % 360;
+    }
+
+    // 모든 센서 값을 "정북=0, 동쪽=90"인 나침반 각도로 통일한다.
+    function headingFromOrientation(event: any): number | null {
+        if (typeof event.webkitCompassHeading === 'number') {
+            return normalizeHeading(event.webkitCompassHeading);
+        }
+        if (typeof event.alpha !== 'number') return null;
+
+        // DeviceOrientation alpha는 정북 기준 반시계 방향 각도이므로 나침반의 시계 방향 각도로 변환한다.
+        // 가로 화면에서는 사용자가 보고 있는 화면 위쪽이 달라지므로 화면 회전각도 함께 보정한다.
+        const screenAngle = Number(window.screen?.orientation?.angle ?? (window as any).orientation ?? 0);
+        return normalizeHeading(360 - event.alpha + screenAngle);
+    }
+
     function applyMapRotation(heading: number) {
-        currentHeading = heading;
+        currentHeading = normalizeHeading(heading);
         const current = ((continuousHeading % 360) + 360) % 360;
-        let diff = heading - current;
+        let diff = currentHeading - current;
         if (diff > 180) diff -= 360;
         if (diff < -180) diff += 360;
         continuousHeading += diff;
@@ -198,12 +219,14 @@
         if (gestureActive) return;
         if (rafId !== null) cancelAnimationFrame(rafId);
         const angle = continuousHeading;
+        const mapAngle = headingMode === 'heading-up' ? -angle : 0;
         rafId = requestAnimationFrame(() => {
             if (overlayElement) {
                 overlayElement.style.transition = 'transform 0.2s linear';
-                overlayElement.style.transform = `rotate(${-angle}deg)`;
+                // 북쪽 고정에서는 바라보는 방향을 표시하고, 헤딩업에서는 지도 회전을 상쇄해 항상 위를 향한다.
+                overlayElement.style.transform = `rotate(${angle}deg)`;
             }
-            applyContainerTransform(angle, true);
+            applyContainerTransform(mapAngle, true);
             rafId = null;
         });
     }
@@ -246,9 +269,9 @@
         absoluteOrientationReceived = false;
 
         const handleAbsolute = (event: DeviceOrientationEvent) => {
-            if (event.alpha === null) return;
+            const heading = headingFromOrientation(event);
+            if (heading === null) return;
             absoluteOrientationReceived = true;
-            const heading = event.alpha;
             currentHeading = heading;
             applyMapRotation(heading);
             const now = Date.now();
@@ -260,14 +283,8 @@
 
         const handleFallback = (event: any) => {
             if (absoluteOrientationReceived) return;
-            let heading: number;
-            if (event.webkitCompassHeading !== undefined) {
-                heading = event.webkitCompassHeading;
-            } else if (event.alpha !== null && event.alpha !== undefined) {
-                heading = event.alpha;
-            } else {
-                return;
-            }
+            const heading = headingFromOrientation(event);
+            if (heading === null) return;
             currentHeading = heading;
             applyMapRotation(heading);
             const now = Date.now();
@@ -296,19 +313,21 @@
         fetchAndDrawPolygons();
     }
 
-    export function startHeading() {
+    export function startHeading(mode: ActiveHeadingMode = 'north-up') {
         if (!navigator.geolocation) {
             alert('이 브라우저에서는 위치 서비스를 지원하지 않습니다.');
             return;
         }
 
         if (isHeadingActive) {
-            stopHeading();
+            setHeadingMode(mode);
             return;
         }
 
+        headingMode = mode;
         isHeadingActive = true;
         isFollowing = true;
+        dispatch('headingmodechange', { mode: headingMode });
         startOrientationTracking();
         locating.set(true);
 
@@ -376,7 +395,16 @@
         applyMapRotation(currentHeading);
     }
 
+    export function setHeadingMode(mode: ActiveHeadingMode) {
+        if (!isHeadingActive) return;
+        headingMode = mode;
+        gestureActive = false;
+        dispatch('headingmodechange', { mode: headingMode });
+        applyMapRotation(currentHeading);
+    }
+
     export function stopHeading() {
+        headingMode = 'off';
         isHeadingActive = false;
         isFollowing = true;
         locating.set(false);
@@ -427,9 +455,11 @@
     // 계산해서 처리하려 했더니 방향/속도가 계속 미묘하게 어긋나는 문제가 있었음. 제스처가 끝나면
     // 다시 부드럽게 회전 상태로 복귀함
     function enterGestureMode() {
-        if (!isHeadingActive || gestureActive) return;
-        gestureActive = true;
+        if (!isHeadingActive) return;
         if (isFollowing) pauseFollowing();
+        // 북쪽 고정 모드는 지도에 CSS 회전이 없으므로 카카오 기본 제스처를 그대로 사용한다.
+        if (headingMode !== 'heading-up' || gestureActive) return;
+        gestureActive = true;
         if (mapContainer) {
             mapContainer.style.transition = 'none';
             mapContainer.style.transform = 'none';

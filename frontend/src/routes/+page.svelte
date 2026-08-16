@@ -13,6 +13,7 @@
     let showSearchResults = false;
 
     let isHeadingActive = false;
+    let headingMode: 'off' | 'north-up' | 'heading-up' = 'off';
     let isFollowing = true; // false면 드래그로 화면을 옮겨서 재중심이 일시정지된 상태
     let isGPSLocating = false; // GPS 정밀 위치 탐색 중
     let isSatellite = false;
@@ -262,10 +263,10 @@
         }
     }
 
-    // 헤딩 기능 토글
+    // 현재 위치 버튼: 꺼짐 -> 북쪽 고정(방향 표시) -> 헤딩업(지도 회전) -> 꺼짐
     async function toggleHeading() {
         // iOS 13+: DeviceOrientation 권한은 사용자 gesture에서 직접 호출해야 함
-        if (!isHeadingActive && typeof (DeviceOrientationEvent as any).requestPermission === 'function') {
+        if (headingMode === 'off' && typeof (DeviceOrientationEvent as any).requestPermission === 'function') {
             try {
                 const perm = await (DeviceOrientationEvent as any).requestPermission();
                 if (perm !== 'granted') {
@@ -277,18 +278,17 @@
             }
         }
         if (mapComponent) {
-            if (isHeadingActive) {
-                if (isFollowing) {
-                    // 추적 중 다시 누르면 완전히 끔
-                    mapComponent.stopHeading();
-                    isGPSLocating = false;
-                } else {
-                    // 드래그로 일시정지된 상태 - 다시 누르면 현재 위치로 재중심
-                    mapComponent.resumeFollowing();
-                }
-            } else {
-                mapComponent.startHeading();
+            if (isHeadingActive && !isFollowing) {
+                // 드래그로 중심 추적이 멈췄으면 모드를 바꾸기 전에 현재 위치로 먼저 복귀한다.
+                mapComponent.resumeFollowing();
+            } else if (headingMode === 'off') {
+                mapComponent.startHeading('north-up');
                 isGPSLocating = true; // GPS 잡을 때까지 스피닝
+            } else if (headingMode === 'north-up') {
+                mapComponent.setHeadingMode('heading-up');
+            } else {
+                mapComponent.stopHeading();
+                isGPSLocating = false;
             }
         }
 
@@ -303,8 +303,14 @@
         forecastLng = event.detail.lng;
     }
 
+    function onHeadingModeChange(event: CustomEvent<{ mode: 'north-up' | 'heading-up' }>) {
+        headingMode = event.detail.mode;
+        isHeadingActive = true;
+    }
+
     // 헤딩 중지 이벤트 처리
     function onHeadingStop() {
+        headingMode = 'off';
         isHeadingActive = false;
         isFollowing = true;
         isGPSLocating = false;
@@ -1300,6 +1306,7 @@
             on:searchresults={onSearchResults}
             on:headingupdate={onHeadingUpdate}
             on:headingstop={onHeadingStop}
+            on:headingmodechange={onHeadingModeChange}
             on:followchange={onFollowChange}
             on:gpsfixed={() => { isGPSLocating = false; }}
             on:fetcherror={onPolygonFetchError}
@@ -1345,10 +1352,16 @@
 
         <!-- 나침반 floating 버튼 -->
         <button
-            class="compass-fab {isHeadingActive ? 'active' : ''} {isHeadingActive && !isFollowing ? 'paused' : ''} {isGPSLocating ? 'locating' : ''}"
+            class="compass-fab {isHeadingActive ? 'active' : ''} {headingMode === 'heading-up' ? 'heading-up' : ''} {isHeadingActive && !isFollowing ? 'paused' : ''} {isGPSLocating ? 'locating' : ''}"
             style="bottom: calc({showAdBanner ? 116 : 20}px + env(safe-area-inset-bottom, 0px));"
             on:click={toggleHeading}
-            title={!isHeadingActive ? '북쪽 찾기' : (isFollowing ? '북쪽 추적 중지' : '현재 위치로 돌아가기')}
+            title={!isHeadingActive
+                ? '현재 위치 및 방향 표시'
+                : !isFollowing
+                    ? '현재 위치로 돌아가기'
+                    : headingMode === 'north-up'
+                        ? '바라보는 방향으로 지도 회전'
+                        : '현재 위치 모드 끄기'}
         >
             <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
                 <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-5.5-2.5l7.51-3.49L17.5 6.5 9.99 9.99 6.5 17.5zm5.5-6.6c.61 0 1.1.49 1.1 1.1s-.49 1.1-1.1 1.1-1.1-.49-1.1-1.1.49-1.1 1.1-1.1z"/>
