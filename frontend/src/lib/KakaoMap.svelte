@@ -546,7 +546,7 @@
     </div>
     {/if}
 
-    <div style="position:absolute;bottom:112px;left:16px;z-index:150;
+    <div style="position:fixed;bottom:calc(112px + env(safe-area-inset-bottom, 0px));left:16px;z-index:150;
                 display:flex;flex-direction:column;gap:4px;
                 background:rgba(0,0,0,0.65);color:white;
                 padding:8px 12px;border-radius:10px;font-size:12px;">
