@@ -252,6 +252,9 @@
     $: fabBaseBottom = showAdBanner ? 116 : 20;
     $: saveLocationFabBottom = fabBaseBottom + 176;
     $: locationsFabBottom = isHeadingActive ? fabBaseBottom + 232 : fabBaseBottom + 176;
+    $: rightControlsTopOffset = $authUser ? (isHeadingActive ? 232 : 176) : 112;
+    $: rightControlsGroupHeight = rightControlsTopOffset + 60;
+    $: rightControlsGripBottom = fabBaseBottom - 6 + Math.max(0, (rightControlsGroupHeight - 112) / 2);
 
     // 광고 목록을 불러오는 함수 (API 우선, 실패 시 ads.json 폴백)
     async function loadAds() {
@@ -843,16 +846,30 @@
         box-shadow: -2px 0 8px rgba(0, 0, 0, 0.2);
         touch-action: pan-y;
     }
+    .right-controls-group-bg {
+        position: absolute;
+        right: 6px;
+        width: 60px;
+        border-radius: 32px;
+        background: rgba(255, 255, 255, 0.76);
+        border: 1px solid rgba(255, 255, 255, 0.9);
+        box-shadow: 0 3px 16px rgba(0, 0, 0, 0.2);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        z-index: 0;
+        touch-action: pan-y;
+    }
     .right-controls-swipe-hint {
         position: absolute;
-        right: 68px;
+        right: 72px;
         width: 4px;
-        height: 36px;
+        height: 112px;
         border-radius: 2px;
         background: #4dabf7;
         box-shadow: 0 0 6px rgba(77, 171, 247, 0.65);
         touch-action: pan-y;
         animation: right-swipe-hint 2s ease-in-out infinite;
+        z-index: 6;
     }
     @keyframes right-swipe-hint {
         0%, 70%, 100% { transform: translateX(0); opacity: 0.65; }
@@ -1467,6 +1484,12 @@
             class="right-controls-layer {rightControlsHidden ? 'hidden' : ''} {menuStateReady ? '' : 'menu-state-restoring'}"
             on:touchstart={(event) => handleControlSwipeStart(event, 'right')}
         >
+        <span
+            class="right-controls-group-bg"
+            style="bottom: calc({fabBaseBottom - 6}px + env(safe-area-inset-bottom, 0px));height:{rightControlsGroupHeight}px;"
+            aria-hidden="true"
+        ></span>
+
         <!-- 저장 위치 FAB (로그인 + 나침반 활성 시) -->
         {#if $authUser && isHeadingActive}
             {#if showSaveForm}
@@ -1541,7 +1564,7 @@
         {#if !rightControlsHidden}
             <span
                 class="right-controls-swipe-hint"
-                style="bottom: calc({showAdBanner ? 116 : 20}px + 62px + env(safe-area-inset-bottom, 0px));"
+                style="bottom: calc({rightControlsGripBottom}px + env(safe-area-inset-bottom, 0px));"
                 aria-hidden="true"
             ></span>
         {/if}
