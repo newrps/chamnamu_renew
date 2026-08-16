@@ -497,10 +497,15 @@
     }
 
     export let isSatellite = false;
-    export function toggleMapType() {
+    export function setSatelliteView() {
         if (!map) return;
-        isSatellite = !isSatellite;
-        map.setMapTypeId(isSatellite ? kakao.maps.MapTypeId.HYBRID : kakao.maps.MapTypeId.ROADMAP);
+        isSatellite = true;
+        map.setMapTypeId(kakao.maps.MapTypeId.HYBRID);
+    }
+    export function setRoadView() {
+        if (!map) return;
+        isSatellite = false;
+        map.setMapTypeId(kakao.maps.MapTypeId.ROADMAP);
     }
 
     export function getAddressFromCoords(lat: number, lng: number): Promise<string> {

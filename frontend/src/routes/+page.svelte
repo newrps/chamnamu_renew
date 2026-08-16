@@ -1327,13 +1327,21 @@
             </svg>
         </button>
 
-        <!-- 위성지도 토글 버튼 -->
+        <!-- 위성지도 버튼 -->
         <button
             class="satellite-fab {isSatellite ? 'active' : ''}"
             style="bottom: calc({showAdBanner ? 116 : 20}px + 56px + env(safe-area-inset-bottom, 0px));"
-            on:click={() => mapComponent.toggleMapType()}
-            title={isSatellite ? '일반 지도로 보기' : '위성 지도로 보기'}
+            on:click={() => mapComponent.setSatelliteView()}
+            title="위성 지도로 보기"
         >🛰️</button>
+
+        <!-- 도로(일반 지도) 버튼 -->
+        <button
+            class="satellite-fab {!isSatellite ? 'active' : ''}"
+            style="bottom: calc({showAdBanner ? 116 : 20}px + 112px + env(safe-area-inset-bottom, 0px));"
+            on:click={() => mapComponent.setRoadView()}
+            title="일반 지도로 보기"
+        >🛣️</button>
 
         <!-- 채집 예보 패널 -->
         <CollectingForecast
