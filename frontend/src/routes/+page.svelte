@@ -828,6 +828,21 @@
         box-shadow: -2px 0 8px rgba(0, 0, 0, 0.2);
         touch-action: pan-y;
     }
+    .right-controls-swipe-hint {
+        position: absolute;
+        right: 3px;
+        width: 4px;
+        height: 36px;
+        border-radius: 2px;
+        background: #4dabf7;
+        box-shadow: 0 0 6px rgba(77, 171, 247, 0.65);
+        touch-action: pan-y;
+        animation: right-swipe-hint 2s ease-in-out infinite;
+    }
+    @keyframes right-swipe-hint {
+        0%, 70%, 100% { transform: translateX(0); opacity: 0.65; }
+        82% { transform: translateX(3px); opacity: 1; }
+    }
 
     .search-results-list {
         list-style: none;
@@ -1505,6 +1520,14 @@
             on:click={() => mapComponent.toggleRoadview()}
             title={roadviewMode ? '로드뷰 끄기' : '로드뷰 켜기'}
         >🚶</button>
+
+        {#if !rightControlsHidden}
+            <span
+                class="right-controls-swipe-hint"
+                style="bottom: calc({showAdBanner ? 116 : 20}px + 62px + env(safe-area-inset-bottom, 0px));"
+                aria-hidden="true"
+            ></span>
+        {/if}
 
         {#if rightControlsHidden}
             <button
