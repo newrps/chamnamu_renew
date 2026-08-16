@@ -467,9 +467,16 @@
                             polygon.setOptions({ fillOpacity: 0.4, strokeWeight: 1 });
                             hidePolygonInfo();
                         });
+                        let tapHighlightTimeout: ReturnType<typeof setTimeout> | null = null;
                         kakao.maps.event.addListener(polygon, 'click', (e: any) => {
                             kakao.maps.event.preventMap();
+                            polygon.setOptions({ fillOpacity: 0.8, strokeWeight: 2 });
                             showPolygonInfo(item.species, e.latLng);
+                            if (tapHighlightTimeout) clearTimeout(tapHighlightTimeout);
+                            tapHighlightTimeout = setTimeout(() => {
+                                polygon.setOptions({ fillOpacity: 0.4, strokeWeight: 1 });
+                                hidePolygonInfo();
+                            }, 2000);
                         });
                         newPolys.push(polygon);
                     }
