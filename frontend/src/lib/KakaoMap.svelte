@@ -128,11 +128,25 @@
     let locationOverlay: any = null;
     let overlayElement: HTMLDivElement | null = null;
 
-    const MAP_ROTATION_SCALE = 1.5; // 회전 중 모서리 빈 공간이 안 보이게 지도 컨테이너를 확대하는 배율
+    let appliedRotationScale = 1; // mapContainer에 실제로 적용된 확대 배율 (드래그 보정 계산에 사용)
     let currentHeading = 0;
     let continuousHeading = 0;
     let appliedRotationAngle = 0; // mapContainer에 실제로 적용된 CSS 회전각 (드래그 보정 계산에 사용)
     let rafId: number | null = null;
+
+    // 회전된 사각형(지도 컨테이너)이 원래 화면 영역을 모서리까지 완전히 덮으려면 필요한 최소 확대 배율.
+    // 화면이 정사각형이 아니라서(특히 세로가 긴 모바일) 고정 배율로는 45도 부근에서 모서리가 비어 보였음
+    function coverageScale(angleDeg: number): number {
+        if (!mapContainer) return 1;
+        const w = mapContainer.clientWidth || 1;
+        const h = mapContainer.clientHeight || 1;
+        const rad = angleDeg * Math.PI / 180;
+        const cos = Math.abs(Math.cos(rad));
+        const sin = Math.abs(Math.sin(rad));
+        const a = w / 2, b = h / 2;
+        const needed = Math.max(cos + (b / a) * sin, (a / b) * sin + cos);
+        return Math.min(needed * 1.05, 3); // 여유 5% + 과도한 확대 방지 상한
+    }
     let currentLat = 0;
     let currentLng = 0;
     let deviceOrientationAbsoluteHandler: ((e: any) => void) | null = null;
@@ -175,12 +189,14 @@
                 overlayElement.style.transition = 'transform 0.2s linear';
                 overlayElement.style.transform = `rotate(${-angle}deg)`;
             }
+            const scale = coverageScale(angle);
             if (mapContainer) {
                 mapContainer.style.transition = 'transform 0.2s linear';
-                mapContainer.style.transform = `rotate(${angle}deg) scale(${MAP_ROTATION_SCALE})`;
+                mapContainer.style.transform = `rotate(${angle}deg) scale(${scale})`;
                 mapContainer.style.transformOrigin = '50% 50%';
             }
             appliedRotationAngle = angle;
+            appliedRotationScale = scale;
             rafId = null;
         });
     }
@@ -286,8 +302,12 @@
 
         isHeadingActive = true;
         isFollowing = true;
-        // 지도가 CSS로 회전되어 있으면 카카오 기본 드래그(회전 반영 안 됨)가 어긋나서 직접 드래그를 처리함
-        if (map) (map as any).setDraggable(false);
+        // 지도가 CSS로 회전되어 있으면 카카오 기본 드래그/줌(회전을 모르고 화면 좌표 그대로 계산)이
+        // 어긋나서(드래그 방향이 틀리거나 줌이 엉뚱한 곳으로 튐) 직접 처리함
+        if (map) {
+            (map as any).setDraggable(false);
+            (map as any).setZoomable(false);
+        }
         startOrientationTracking();
         locating.set(true);
 
@@ -388,23 +408,33 @@
         currentHeading = 0;
         continuousHeading = 0;
         appliedRotationAngle = 0;
+        appliedRotationScale = 1;
         absoluteOrientationReceived = false;
         if (mapContainer) {
             mapContainer.style.transition = '';
             mapContainer.style.transform = '';
         }
-        if (map) (map as any).setDraggable(true);
+        if (map) {
+            (map as any).setDraggable(true);
+            (map as any).setZoomable(true);
+        }
+        pinchActive = false;
         lastPolygonUpdate = 0;
         lastCenter = null;
 
         dispatch('headingstop');
     }
 
-    // 지도가 CSS로 회전된 상태에서는 카카오 기본 드래그(회전을 모르고 항상 북쪽 기준으로 이동)가
-    // 화면에 보이는 방향과 어긋나므로, 추적 중엔 기본 드래그를 끄고(setDraggable(false)) 직접 처리함
+    // 지도가 CSS로 회전된 상태에서는 카카오 기본 드래그/줌(회전을 모르고 항상 북쪽 기준 화면 좌표로 계산)이
+    // 화면에 보이는 방향과 어긋나므로, 추적 중엔 기본 드래그/줌을 끄고(setDraggable/setZoomable(false)) 직접 처리함
+    const MIN_ZOOM_LEVEL = 1;
+    const MAX_ZOOM_LEVEL = 7;
     let customDragActive = false;
     let customDragLastX = 0;
     let customDragLastY = 0;
+    let pinchActive = false;
+    let pinchStartDist = 0;
+    let pinchStartLevel = 3;
 
     // panBy는 부드럽게(애니메이션으로) 움직이는 함수라 연속으로 자주 호출하면
     // 매번 애니메이션이 도중에 끊기면서 실제로는 아주 조금만 움직인 것처럼 보임 -
@@ -450,8 +480,8 @@
         customDragLastY = clientY;
         const delta = rotatedPanDelta(screenDx, screenDy);
         // 지도 컨테이너가 scale(1.5)로 확대돼 있어서, 화면상 이동량을 지도 내부 픽셀 단위로 환산
-        const internalDx = delta.x / MAP_ROTATION_SCALE;
-        const internalDy = delta.y / MAP_ROTATION_SCALE;
+        const internalDx = delta.x / appliedRotationScale;
+        const internalDy = delta.y / appliedRotationScale;
         // 드래그 방향으로 화면 내용이 손가락을 따라오도록 부호 반전
         panByRotated(-internalDx, -internalDy);
     }
@@ -476,28 +506,85 @@
         window.removeEventListener('mousemove', handleWindowMouseMove);
     }
 
+    // 회전 중엔 카카오 기본 줌(핀치/휠)이 어디를 기준으로 확대할지 화면 좌표로 계산하다가
+    // 회전된 화면과 어긋나서 엉뚱한 곳으로 튀는 문제가 있었음 - anchor 없이 setLevel만 호출해서
+    // 항상 "현재 지도 중심" 기준으로 확대/축소함 (회전 중심=화면 중심이라 항상 안전함)
+    function touchDistance(t0: Touch, t1: Touch) {
+        const dx = t1.clientX - t0.clientX;
+        const dy = t1.clientY - t0.clientY;
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    function startPinch(t0: Touch, t1: Touch) {
+        if (!map) return;
+        pinchActive = true;
+        pinchStartDist = touchDistance(t0, t1);
+        pinchStartLevel = map.getLevel();
+    }
+
+    function updatePinch(t0: Touch, t1: Touch) {
+        if (!map || pinchStartDist <= 0) return;
+        const dist = touchDistance(t0, t1);
+        const ratio = dist / pinchStartDist;
+        // 카카오 레벨은 낮을수록 확대(줌인) - 손가락을 벌리면(ratio>1) 레벨을 낮춤
+        let targetLevel = Math.round(pinchStartLevel - Math.log2(ratio));
+        targetLevel = Math.max(MIN_ZOOM_LEVEL, Math.min(MAX_ZOOM_LEVEL, targetLevel));
+        if (targetLevel !== map.getLevel()) {
+            map.setLevel(targetLevel);
+        }
+    }
+
+    function handleContainerWheel(e: WheelEvent) {
+        if (!isHeadingActive || !map) return;
+        e.preventDefault();
+        const level = map.getLevel();
+        const newLevel = Math.max(MIN_ZOOM_LEVEL, Math.min(MAX_ZOOM_LEVEL, level + (e.deltaY > 0 ? 1 : -1)));
+        if (newLevel !== level) map.setLevel(newLevel);
+    }
+
     function handleContainerTouchStart(e: TouchEvent) {
-        if (!isHeadingActive || e.touches.length !== 1) return;
+        if (!isHeadingActive) return;
+        if (e.touches.length === 2) {
+            startPinch(e.touches[0], e.touches[1]);
+            window.addEventListener('touchmove', handleWindowTouchMove, { passive: false });
+            window.addEventListener('touchend', handleWindowTouchEnd);
+            window.addEventListener('touchcancel', handleWindowTouchEnd);
+            return;
+        }
+        if (e.touches.length !== 1) return;
         customDragStart(e.touches[0].clientX, e.touches[0].clientY);
         window.addEventListener('touchmove', handleWindowTouchMove, { passive: false });
         window.addEventListener('touchend', handleWindowTouchEnd);
         window.addEventListener('touchcancel', handleWindowTouchEnd);
     }
     function handleWindowTouchMove(e: TouchEvent) {
-        if (!customDragActive) return;
-        if (e.touches.length !== 1) {
-            // 두 손가락(핀치줌)이 되면 드래그 취소 - 카카오 기본 줌 동작에 맡김
-            customDragActive = false;
-            window.removeEventListener('touchmove', handleWindowTouchMove);
-            window.removeEventListener('touchend', handleWindowTouchEnd);
-            window.removeEventListener('touchcancel', handleWindowTouchEnd);
+        if (e.touches.length === 2) {
+            if (customDragActive) customDragActive = false; // 드래그 중 손가락이 늘면 핀치로 전환
+            if (!pinchActive) startPinch(e.touches[0], e.touches[1]);
+            e.preventDefault();
+            updatePinch(e.touches[0], e.touches[1]);
             return;
         }
-        e.preventDefault();
-        customDragMove(e.touches[0].clientX, e.touches[0].clientY);
+        if (e.touches.length === 1) {
+            if (pinchActive) {
+                // 핀치 중 손가락 하나를 떼면 남은 손가락으로 드래그 재개
+                pinchActive = false;
+                customDragStart(e.touches[0].clientX, e.touches[0].clientY);
+            }
+            if (!customDragActive) return;
+            e.preventDefault();
+            customDragMove(e.touches[0].clientX, e.touches[0].clientY);
+        }
     }
-    function handleWindowTouchEnd() {
+    function handleWindowTouchEnd(e: TouchEvent) {
+        if (e.touches.length === 1) {
+            pinchActive = false;
+            customDragStart(e.touches[0].clientX, e.touches[0].clientY);
+            return;
+        }
+        if (e.touches.length > 0) return;
         customDragEnd();
+        pinchActive = false;
         window.removeEventListener('touchmove', handleWindowTouchMove);
         window.removeEventListener('touchend', handleWindowTouchEnd);
         window.removeEventListener('touchcancel', handleWindowTouchEnd);
@@ -517,6 +604,7 @@
 
             mapContainer.addEventListener('mousedown', handleContainerMouseDown);
             mapContainer.addEventListener('touchstart', handleContainerTouchStart, { passive: true });
+            mapContainer.addEventListener('wheel', handleContainerWheel, { passive: false });
 
             kakao.maps.event.addListener(map, 'dragend', fetchAndDrawPolygons);
             kakao.maps.event.addListener(map, 'dragstart', () => {
@@ -924,6 +1012,7 @@
             if (mapContainer) {
                 mapContainer.removeEventListener('mousedown', handleContainerMouseDown);
                 mapContainer.removeEventListener('touchstart', handleContainerTouchStart);
+                mapContainer.removeEventListener('wheel', handleContainerWheel);
             }
             window.removeEventListener('mousemove', handleWindowMouseMove);
             window.removeEventListener('touchmove', handleWindowTouchMove);
