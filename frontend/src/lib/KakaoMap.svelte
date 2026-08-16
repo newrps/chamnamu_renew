@@ -513,6 +513,9 @@
     let roadviewClickListener: any;
     let miniMap: any;
     let miniMapMarker: any;
+    let miniMapDirEl: HTMLDivElement | null = null;
+    let miniMapDirOverlay: any;
+    let miniMapPolygons: any[] = [];
 
     export function toggleRoadview() {
         if (!map) return;
@@ -525,6 +528,48 @@
             if (roadviewClickListener) kakao.maps.event.removeListener(map, 'click', roadviewClickListener);
             closeRoadview();
         }
+    }
+
+    function ensureMiniMapDirOverlay(position: any) {
+        if (!miniMapDirOverlay) {
+            miniMapDirEl = document.createElement('div');
+            miniMapDirEl.style.cssText = 'pointer-events:none;transform-origin:50% 50%;';
+            miniMapDirEl.innerHTML = `<svg width="34" height="34" viewBox="0 0 34 34">
+                <polygon points="17,3 6,30 17,23 28,30" fill="rgba(255,80,0,0.9)" stroke="white" stroke-width="1.5" stroke-linejoin="round"/>
+            </svg>`;
+            miniMapDirOverlay = new kakao.maps.CustomOverlay({
+                position, content: miniMapDirEl, xAnchor: 0.5, yAnchor: 0.5, zIndex: 3
+            });
+        }
+        miniMapDirOverlay.setPosition(position);
+        miniMapDirOverlay.setMap(miniMap);
+    }
+
+    async function drawMiniMapPolygons(position: any) {
+        miniMapPolygons.forEach(p => p.setMap(null));
+        miniMapPolygons = [];
+
+        const lat = position.getLat();
+        const lng = position.getLng();
+        const d = 0.003; // 대략 300m 안쪽
+        const apiUrl = `${VITE_API_BASE_URL}/api/polygon/nearby?minLng=${lng - d}&minLat=${lat - d}&maxLng=${lng + d}&maxLat=${lat + d}`;
+        try {
+            const res = await fetch(apiUrl);
+            if (!res.ok) return;
+            const data = await res.json();
+            data.forEach((item: any) => {
+                const color = colorForSpecies(item.species);
+                parseGeoJSON(item.geometry).forEach(path => {
+                    if (path.length === 0) return;
+                    const polygon = new kakao.maps.Polygon({
+                        path, strokeWeight: 1, strokeColor: color.stroke, strokeOpacity: 0.9,
+                        fillColor: color.fill, fillOpacity: 0.4
+                    });
+                    polygon.setMap(miniMap);
+                    miniMapPolygons.push(polygon);
+                });
+            });
+        } catch { /* 미니맵 폴리곤은 부가 정보라 실패해도 무시 */ }
     }
 
     function handleRoadviewMapClick(mouseEvent: any) {
@@ -542,7 +587,13 @@
                     if (miniMap && miniMapMarker) {
                         miniMap.setCenter(pos);
                         miniMapMarker.setPosition(pos);
+                        ensureMiniMapDirOverlay(pos);
+                        drawMiniMapPolygons(pos);
                     }
+                });
+                kakao.maps.event.addListener(roadviewInstance, 'viewpoint_changed', () => {
+                    const vp = roadviewInstance.getViewpoint();
+                    if (miniMapDirEl) miniMapDirEl.style.transform = `rotate(${vp.pan}deg)`;
                 });
             }
             roadviewInstance.setPanoId(panoId, position);
@@ -556,6 +607,8 @@
                 miniMapMarker.setPosition(position);
                 miniMap.relayout();
             }
+            ensureMiniMapDirOverlay(position);
+            drawMiniMapPolygons(position);
         });
     }
 
