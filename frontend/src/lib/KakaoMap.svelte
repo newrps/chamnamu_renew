@@ -107,6 +107,8 @@
     }
 
     let isHeadingActive = false;
+    // 추적 중 지도를 직접 드래그하면 재중심/회전을 멈추고(다음지도 방식), 나침반 버튼으로 다시 재중심함
+    let isFollowing = true;
     let dragStopHeadingTimer: ReturnType<typeof setTimeout> | null = null;
     let programmaticPanTimer: ReturnType<typeof setTimeout> | null = null;
     let isProgrammaticPan = false;
@@ -162,6 +164,10 @@
         if (diff > 180) diff -= 360;
         if (diff < -180) diff += 360;
         continuousHeading += diff;
+
+        // 일시정지(사용자가 드래그로 화면을 옮긴) 상태면 각도 계산만 갱신하고 실제 회전은 적용 안 함
+        // (재개 시 최신 heading으로 바로 스냅되도록)
+        if (!isFollowing) return;
 
         if (rafId !== null) cancelAnimationFrame(rafId);
         const angle = continuousHeading;
@@ -279,6 +285,7 @@
         }
 
         isHeadingActive = true;
+        isFollowing = true;
         startOrientationTracking();
         locating.set(true);
 
@@ -308,8 +315,10 @@
                 currentLng = lng;
 
                 createOrUpdateLocationOverlay(lat, lng);
-                panToPosition(lat, lng);
-                updatePolygonsIfNeeded(lat, lng);
+                if (isFollowing) {
+                    panToPosition(lat, lng);
+                    updatePolygonsIfNeeded(lat, lng);
+                }
 
                 const gpsHeading = position.coords.heading;
                 if (!absoluteOrientationReceived && gpsHeading !== null && gpsHeading !== undefined) {
@@ -328,8 +337,25 @@
         );
     }
 
+    // 드래그로 화면을 옮기면 재중심/회전만 멈춤 - 추적 자체(GPS/방향 센서)는 계속 유지
+    function pauseFollowing() {
+        if (!isFollowing) return;
+        isFollowing = false;
+        dispatch('followchange', { following: false });
+    }
+
+    // 나침반 버튼을 다시 눌러서 재중심 - GPS를 재시작하지 않고 바로 최신 위치/각도로 스냅
+    export function resumeFollowing() {
+        if (!isHeadingActive) return;
+        isFollowing = true;
+        dispatch('followchange', { following: true });
+        panToPosition(currentLat, currentLng);
+        applyMapRotation(currentHeading);
+    }
+
     export function stopHeading() {
         isHeadingActive = false;
+        isFollowing = true;
         locating.set(false);
 
         if (watchId !== null) {
@@ -386,12 +412,14 @@
             kakao.maps.event.addListener(map, 'dragstart', () => {
                 // 우리 코드가 panTo()로 지도를 움직인 것이면(현재위치 추적 중 계속 발생) 무시
                 if (isProgrammaticPan) return;
+                // 추적 중이 아니거나 이미 일시정지 상태면 할 일 없음
+                if (!isHeadingActive || !isFollowing) return;
                 // 모바일 핀치줌 제스처가 시작될 때도 dragstart가 같이 발생해서, 줌인지 실제 드래그인지
                 // 잠깐 기다렸다가 판단함 (그 사이 zoom_changed가 오면 줌으로 간주하고 취소)
                 if (dragStopHeadingTimer) clearTimeout(dragStopHeadingTimer);
                 dragStopHeadingTimer = setTimeout(() => {
                     dragStopHeadingTimer = null;
-                    stopHeading();
+                    pauseFollowing();
                 }, 150);
             });
             kakao.maps.event.addListener(map, 'zoom_changed', () => {

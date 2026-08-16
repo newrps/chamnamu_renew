@@ -13,6 +13,7 @@
     let showSearchResults = false;
 
     let isHeadingActive = false;
+    let isFollowing = true; // false면 드래그로 화면을 옮겨서 재중심이 일시정지된 상태
     let isGPSLocating = false; // GPS 정밀 위치 탐색 중
     let isSatellite = false;
     let roadviewMode = false;
@@ -277,8 +278,14 @@
         }
         if (mapComponent) {
             if (isHeadingActive) {
-                mapComponent.stopHeading();
-                isGPSLocating = false;
+                if (isFollowing) {
+                    // 추적 중 다시 누르면 완전히 끔
+                    mapComponent.stopHeading();
+                    isGPSLocating = false;
+                } else {
+                    // 드래그로 일시정지된 상태 - 다시 누르면 현재 위치로 재중심
+                    mapComponent.resumeFollowing();
+                }
             } else {
                 mapComponent.startHeading();
                 isGPSLocating = true; // GPS 잡을 때까지 스피닝
@@ -299,7 +306,13 @@
     // 헤딩 중지 이벤트 처리
     function onHeadingStop() {
         isHeadingActive = false;
+        isFollowing = true;
         isGPSLocating = false;
+    }
+
+    // 드래그로 재중심이 일시정지/재개될 때
+    function onFollowChange(event: CustomEvent<{ following: boolean }>) {
+        isFollowing = event.detail.following;
     }
 
     // 드래그 핸들 전용 이벤트 핸들러
@@ -658,6 +671,13 @@
         background: #1a73e8;
         color: white;
         box-shadow: 0 2px 12px rgba(26,115,232,0.5);
+    }
+
+    /* 드래그로 재중심이 일시정지된 상태 - 다시 누르면 현재 위치로 돌아감 */
+    .compass-fab.active.paused {
+        background: white;
+        color: #1a73e8;
+        border: 2px solid #1a73e8;
     }
 
     .compass-fab.locating {
@@ -1280,6 +1300,7 @@
             on:searchresults={onSearchResults}
             on:headingupdate={onHeadingUpdate}
             on:headingstop={onHeadingStop}
+            on:followchange={onFollowChange}
             on:gpsfixed={() => { isGPSLocating = false; }}
             on:fetcherror={onPolygonFetchError}
             on:polygonsfetched={() => { polygonsReady = true; }}
@@ -1324,10 +1345,10 @@
 
         <!-- 나침반 floating 버튼 -->
         <button
-            class="compass-fab {isHeadingActive ? 'active' : ''} {isGPSLocating ? 'locating' : ''}"
+            class="compass-fab {isHeadingActive ? 'active' : ''} {isHeadingActive && !isFollowing ? 'paused' : ''} {isGPSLocating ? 'locating' : ''}"
             style="bottom: calc({showAdBanner ? 116 : 20}px + env(safe-area-inset-bottom, 0px));"
             on:click={toggleHeading}
-            title={isHeadingActive ? '북쪽 추적 중지' : '북쪽 찾기'}
+            title={!isHeadingActive ? '북쪽 찾기' : (isFollowing ? '북쪽 추적 중지' : '현재 위치로 돌아가기')}
         >
             <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
                 <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-5.5-2.5l7.51-3.49L17.5 6.5 9.99 9.99 6.5 17.5zm5.5-6.6c.61 0 1.1.49 1.1 1.1s-.49 1.1-1.1 1.1-1.1-.49-1.1-1.1.49-1.1 1.1-1.1z"/>
