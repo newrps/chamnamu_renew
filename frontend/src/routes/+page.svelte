@@ -173,6 +173,7 @@
     // 모바일 좌우 컨트롤 묶음 스와이프
     let leftControlsHidden = false;
     let rightControlsHidden = false;
+    let menuStateReady = false;
     let controlSwipeSide: 'left' | 'right' | null = null;
     let controlSwipeStartX = 0;
     let controlSwipeStartY = 0;
@@ -181,11 +182,18 @@
     function setControlsHidden(side: 'left' | 'right', hidden: boolean) {
         if (side === 'left') {
             leftControlsHidden = hidden;
+            setCookie('map_left_controls_hidden', hidden ? '1' : '0', 30);
             if (hidden) showCollectingPanel = false;
         } else {
             rightControlsHidden = hidden;
+            setCookie('map_right_controls_hidden', hidden ? '1' : '0', 30);
             if (hidden) showSaveForm = false;
         }
+    }
+
+    function onLegendVisibilityChange(event: CustomEvent<{ hidden: boolean }>) {
+        leftControlsHidden = event.detail.hidden;
+        setCookie('map_left_controls_hidden', event.detail.hidden ? '1' : '0', 30);
     }
 
     function handleControlSwipeStart(event: TouchEvent, side: 'left' | 'right') {
@@ -487,6 +495,9 @@
 
         // 검색 패널 상태 복원
         if (getCookie('search_panel_hidden') === '1') isHidden = true;
+        leftControlsHidden = getCookie('map_left_controls_hidden') === '1';
+        rightControlsHidden = getCookie('map_right_controls_hidden') === '1';
+        requestAnimationFrame(() => { menuStateReady = true; });
 
         // 인증 초기화 (URL 토큰 처리 + localStorage 복원)
         initAuth();
@@ -806,6 +817,10 @@
         transition: transform 0.28s ease;
         will-change: transform;
     }
+    .menu-state-restoring {
+        visibility: hidden;
+        transition: none !important;
+    }
     .right-controls-layer > * {
         pointer-events: auto;
     }
@@ -830,7 +845,7 @@
     }
     .right-controls-swipe-hint {
         position: absolute;
-        right: 3px;
+        right: 68px;
         width: 4px;
         height: 36px;
         border-radius: 2px;
@@ -1424,6 +1439,7 @@
             bind:isSatellite
             bind:roadviewMode
             bind:legendHidden={leftControlsHidden}
+            controlsReady={menuStateReady}
             legendBottom={(showAdBanner ? 116 : 20) + 56}
             on:searchresults={onSearchResults}
             on:headingupdate={onHeadingUpdate}
@@ -1433,11 +1449,12 @@
             on:gpsfixed={() => { isGPSLocating = false; }}
             on:fetcherror={onPolygonFetchError}
             on:polygonsfetched={() => { polygonsReady = true; }}
+            on:legendvisibilitychange={onLegendVisibilityChange}
         />
 
         <!-- 왼쪽 메뉴: 채집 예보 FAB + KakaoMap 수종 범례 -->
         <button
-            class="collecting-fab {showCollectingPanel ? 'active' : ''} {leftControlsHidden ? 'left-controls-hidden' : ''}"
+            class="collecting-fab {showCollectingPanel ? 'active' : ''} {leftControlsHidden ? 'left-controls-hidden' : ''} {menuStateReady ? '' : 'menu-state-restoring'}"
             style="bottom: calc({showAdBanner ? 116 : 20}px + env(safe-area-inset-bottom, 0px));"
             on:touchstart={(event) => handleControlSwipeStart(event, 'left')}
             on:click={() => showCollectingPanel = !showCollectingPanel}
@@ -1447,7 +1464,7 @@
         <div
             role="group"
             aria-label="오른쪽 지도 메뉴"
-            class="right-controls-layer {rightControlsHidden ? 'hidden' : ''}"
+            class="right-controls-layer {rightControlsHidden ? 'hidden' : ''} {menuStateReady ? '' : 'menu-state-restoring'}"
             on:touchstart={(event) => handleControlSwipeStart(event, 'right')}
         >
         <!-- 저장 위치 FAB (로그인 + 나침반 활성 시) -->
@@ -1557,7 +1574,7 @@
         {/if}
 
         <div
-            class="search-container {isHidden ? 'hidden' : ''}"
+            class="search-container {isHidden ? 'hidden' : ''} {menuStateReady ? '' : 'menu-state-restoring'}"
             bind:this={searchContainer}
         >
             <!-- 드래그 핸들 -->

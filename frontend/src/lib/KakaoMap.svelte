@@ -55,8 +55,15 @@
 
     // 범례 좌우 스와이프로 숨기기/보이기
     export let legendHidden = false;
+    export let controlsReady = true;
     let legendSwipeStartX = 0;
     let legendSwiping = false;
+
+    function setLegendHidden(hidden: boolean) {
+        if (legendHidden === hidden) return;
+        legendHidden = hidden;
+        dispatch('legendvisibilitychange', { hidden });
+    }
 
     function legendSwipeStart(e: TouchEvent | MouseEvent) {
         legendSwipeStartX = e instanceof TouchEvent ? e.touches[0].clientX : (e as MouseEvent).clientX;
@@ -72,9 +79,9 @@
         const x = e instanceof TouchEvent ? e.touches[0].clientX : (e as MouseEvent).clientX;
         const deltaX = x - legendSwipeStartX;
         if (deltaX < -40 && !legendHidden) {
-            legendHidden = true;
+            setLegendHidden(true);
         } else if (deltaX > 40 && legendHidden) {
-            legendHidden = false;
+            setLegendHidden(false);
         }
     }
 
@@ -983,7 +990,8 @@
                 background:rgba(0,0,0,0.65);color:white;
                 padding:8px 20px 8px 12px;border-radius:10px;font-size:12px;max-width:150px;
                 touch-action:pan-y;user-select:none;cursor:grab;
-                transition:transform 0.25s ease, opacity 0.25s ease;
+                visibility:{controlsReady ? 'visible' : 'hidden'};
+                transition:{controlsReady ? 'transform 0.25s ease, opacity 0.25s ease' : 'none'};
                 transform:translateX({legendHidden ? '-150%' : '0'});
                 opacity:{legendHidden ? 0 : 1};
                 pointer-events:{legendHidden ? 'none' : 'auto'};">
@@ -1009,11 +1017,11 @@
         >{legendExpanded ? '접기 ▲' : '· · · 더보기'}</button>
     </div>
 
-    {#if legendHidden}
+    {#if controlsReady && legendHidden}
     <div
         on:touchstart={legendSwipeStart}
         on:mousedown={legendSwipeStart}
-        on:click={() => legendHidden = false}
+        on:click={() => setLegendHidden(false)}
         style="position:fixed;bottom:calc({legendBottom}px + env(safe-area-inset-bottom, 0px));left:0;z-index:150;
                 background:rgba(0,0,0,0.65);color:white;
                 padding:8px 6px;border-radius:0 10px 10px 0;font-size:12px;
