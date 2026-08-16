@@ -20,6 +20,14 @@
     let roadviewMode = false;
     let currentLocation = { lat: 0, lng: 0, heading: 0 };
 
+    $: headingButtonTitle = !isHeadingActive
+        ? '현재 위치 및 방향 표시'
+        : !isFollowing
+            ? '현재 위치로 돌아가기'
+            : headingMode === 'north-up'
+                ? '바라보는 방향으로 지도 회전'
+                : '현재 위치 모드 끄기';
+
     let showCollectingPanel = false;
     let forecastLat = 0;
     let forecastLng = 0;
@@ -677,6 +685,11 @@
         background: #1a73e8;
         color: white;
         box-shadow: 0 2px 12px rgba(26,115,232,0.5);
+    }
+
+    .compass-fab.active.heading-up {
+        background: #0d47a1;
+        box-shadow: 0 2px 12px rgba(13,71,161,0.55);
     }
 
     /* 드래그로 재중심이 일시정지된 상태 - 다시 누르면 현재 위치로 돌아감 */
@@ -1355,17 +1368,25 @@
             class="compass-fab {isHeadingActive ? 'active' : ''} {headingMode === 'heading-up' ? 'heading-up' : ''} {isHeadingActive && !isFollowing ? 'paused' : ''} {isGPSLocating ? 'locating' : ''}"
             style="bottom: calc({showAdBanner ? 116 : 20}px + env(safe-area-inset-bottom, 0px));"
             on:click={toggleHeading}
-            title={!isHeadingActive
-                ? '현재 위치 및 방향 표시'
-                : !isFollowing
-                    ? '현재 위치로 돌아가기'
-                    : headingMode === 'north-up'
-                        ? '바라보는 방향으로 지도 회전'
-                        : '현재 위치 모드 끄기'}
+            title={headingButtonTitle}
+            aria-label={headingButtonTitle}
         >
+            {#if headingMode === 'off'}
+            <!-- 꺼짐: 현재 위치 표적 -->
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+                <path d="M13 1v2.06A9.01 9.01 0 0120.94 11H23v2h-2.06A9.01 9.01 0 0113 20.94V23h-2v-2.06A9.01 9.01 0 013.06 13H1v-2h2.06A9.01 9.01 0 0111 3.06V1h2zm-1 4a7 7 0 100 14 7 7 0 000-14zm0 4a3 3 0 110 6 3 3 0 010-6z"/>
+            </svg>
+            {:else if headingMode === 'north-up'}
+            <!-- 첫 클릭: 지도는 북쪽 고정, 화살표만 바라보는 방향 표시 -->
+            <svg width="27" height="27" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 2L4.5 21 12 17.7 19.5 21 12 2zm0 5.8l3.7 9.4-3.7-1.6-3.7 1.6L12 7.8z"/>
+            </svg>
+            {:else}
+            <!-- 두 번째 클릭: 헤딩업, 지도가 바라보는 방향에 맞춰 회전 -->
             <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
                 <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-5.5-2.5l7.51-3.49L17.5 6.5 9.99 9.99 6.5 17.5zm5.5-6.6c.61 0 1.1.49 1.1 1.1s-.49 1.1-1.1 1.1-1.1-.49-1.1-1.1.49-1.1 1.1-1.1z"/>
             </svg>
+            {/if}
         </button>
 
         <!-- 위성지도 토글 버튼 -->
