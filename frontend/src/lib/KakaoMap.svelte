@@ -21,6 +21,7 @@
     type PolygonBounds = { minLat: number; minLng: number; maxLat: number; maxLng: number };
     type CachedPolygon = {
         polygons: kakao.maps.Polygon[];
+        species: string | null;
         lastUsedAt: number;
     };
     type PolygonQueryCache = {
@@ -35,6 +36,12 @@
     let polygonCacheLimit = 14000;
     let polygonQueryCacheLimit = 3;
     let polygonsFetchedOnce = false;
+    let selectedSpecies: string | null = null;
+    let nearestSpeciesLoading: string | null = null;
+    let nearestSpeciesMessage = '';
+    let nearestSpeciesMessageTimer: ReturnType<typeof setTimeout> | null = null;
+    let pendingNearestPolygonId: string | null = null;
+    let nearestHighlightTimer: ReturnType<typeof setTimeout> | null = null;
 
     // 참나무류: 채집지도의 핵심이라 선명한 색으로 표시
     const OAK_SPECIES = ['신갈나무', '굴참나무', '상수리나무', '기타참나무류'];
@@ -63,6 +70,36 @@
     const DEFAULT_SPECIES_COLOR = { fill: '#898781', stroke: '#6b6963' };
     function colorForSpecies(species: string | null | undefined) {
         return (species && SPECIES_COLORS[species]) || DEFAULT_SPECIES_COLOR;
+    }
+
+    function polygonRestingOptions(species: string | null | undefined) {
+        const emphasized = selectedSpecies === null || selectedSpecies === species;
+        return {
+            fillOpacity: emphasized ? 0.4 : 0.07,
+            strokeOpacity: emphasized ? 0.9 : 0.18,
+            strokeWeight: 1
+        };
+    }
+
+    function refreshSpeciesHighlight() {
+        for (const cached of drawnPolygons.values()) {
+            const options = polygonRestingOptions(cached.species);
+            cached.polygons.forEach(polygon => (polygon as any).setOptions(options));
+        }
+    }
+
+    function toggleSpeciesHighlight(species: string) {
+        selectedSpecies = selectedSpecies === species ? null : species;
+        refreshSpeciesHighlight();
+    }
+
+    function showNearestSpeciesMessage(message: string) {
+        nearestSpeciesMessage = message;
+        if (nearestSpeciesMessageTimer) clearTimeout(nearestSpeciesMessageTimer);
+        nearestSpeciesMessageTimer = setTimeout(() => {
+            nearestSpeciesMessage = '';
+            nearestSpeciesMessageTimer = null;
+        }, 3500);
     }
     export const speciesLegendPrimary = OAK_SPECIES.map(name => ({ name, color: SPECIES_COLORS[name].fill }));
     export const speciesLegendMore = OTHER_SPECIES.map(name => ({ name, color: SPECIES_COLORS[name].fill }));
@@ -730,6 +767,71 @@
         polygonQueryCacheLimit = Math.max(2, polygonQueryCacheLimit - 1);
     }
 
+    function highlightPendingNearestPolygon() {
+        if (!pendingNearestPolygonId) return;
+        const cached = drawnPolygons.get(pendingNearestPolygonId);
+        if (!cached || !activePolygonIds.has(pendingNearestPolygonId)) return;
+
+        if (nearestHighlightTimer) clearTimeout(nearestHighlightTimer);
+        cached.polygons.forEach(polygon => (polygon as any).setOptions({
+            fillOpacity: 0.9,
+            strokeOpacity: 1,
+            strokeWeight: 3
+        }));
+        const highlightedId = pendingNearestPolygonId;
+        pendingNearestPolygonId = null;
+        nearestHighlightTimer = setTimeout(() => {
+            const highlighted = drawnPolygons.get(highlightedId);
+            if (highlighted) {
+                const options = polygonRestingOptions(highlighted.species);
+                highlighted.polygons.forEach(polygon => (polygon as any).setOptions(options));
+            }
+            nearestHighlightTimer = null;
+        }, 2800);
+    }
+
+    async function moveToNearestSpecies(species: string) {
+        if (!map || nearestSpeciesLoading) return;
+        nearestSpeciesLoading = species;
+        selectedSpecies = species;
+        refreshSpeciesHighlight();
+
+        const center = map.getCenter() as any;
+        const params = new URLSearchParams({
+            species,
+            lat: String(center.getLat()),
+            lng: String(center.getLng())
+        });
+
+        try {
+            const response = await fetch(`${VITE_API_BASE_URL}/api/polygon/nearest?${params}`);
+            if (response.status === 404) {
+                showNearestSpeciesMessage(`${species} 군락을 찾지 못했습니다.`);
+                return;
+            }
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+            const result = await response.json();
+            pendingNearestPolygonId = String(result.id);
+            if (isHeadingActive && isFollowing) pauseFollowing();
+            map.setCenter(new kakao.maps.LatLng(result.lat, result.lng));
+            if ((map as any).getLevel() > 4) (map as any).setLevel(4);
+
+            const distance = Number(result.distance_m);
+            const distanceText = distance < 1000
+                ? `${Math.round(distance)}m`
+                : `${(distance / 1000).toFixed(1)}km`;
+            showNearestSpeciesMessage(`가장 가까운 ${species} · ${distanceText}`);
+
+            setTimeout(() => fetchAndDrawPolygons(), 120);
+        } catch (error) {
+            console.error('가까운 수종 검색에 실패했습니다:', error);
+            showNearestSpeciesMessage('가까운 군락을 찾는 중 오류가 발생했습니다.');
+        } finally {
+            nearestSpeciesLoading = null;
+        }
+    }
+
     async function fetchAndDrawPolygons() {
         if (!map) return;
 
@@ -750,6 +852,7 @@
         const cachedQuery = findCachedPolygonQuery(requestBounds);
         if (cachedQuery) {
             activatePolygonIds(cachedQuery.ids);
+            highlightPendingNearestPolygon();
             if (!polygonsFetchedOnce) {
                 polygonsFetchedOnce = true;
                 dispatch('polygonsfetched');
@@ -793,43 +896,44 @@
                             path,
                             strokeWeight: 1,
                             strokeColor: color.stroke,
-                            strokeOpacity: 0.9,
+                            strokeOpacity: polygonRestingOptions(item.species).strokeOpacity,
                             fillColor: color.fill,
-                            fillOpacity: 0.4
+                            fillOpacity: polygonRestingOptions(item.species).fillOpacity
                         });
                         polygon.setMap(map);
                         kakao.maps.event.addListener(polygon, 'mouseover', (e: any) => {
-                            polygon.setOptions({ fillOpacity: 0.8, strokeWeight: 2 });
+                            polygon.setOptions({ fillOpacity: 0.8, strokeOpacity: 0.9, strokeWeight: 2 });
                             showPolygonInfo(item.species, e.latLng);
                         });
                         kakao.maps.event.addListener(polygon, 'mousemove', (e: any) => {
                             if (polygonInfoOverlay) polygonInfoOverlay.setPosition(e.latLng);
                         });
                         kakao.maps.event.addListener(polygon, 'mouseout', () => {
-                            polygon.setOptions({ fillOpacity: 0.4, strokeWeight: 1 });
+                            polygon.setOptions(polygonRestingOptions(item.species));
                             hidePolygonInfo();
                         });
                         let tapHighlightTimeout: ReturnType<typeof setTimeout> | null = null;
                         kakao.maps.event.addListener(polygon, 'click', (e: any) => {
                             kakao.maps.event.preventMap();
-                            polygon.setOptions({ fillOpacity: 0.8, strokeWeight: 2 });
+                            polygon.setOptions({ fillOpacity: 0.8, strokeOpacity: 0.9, strokeWeight: 2 });
                             showPolygonInfo(item.species, e.latLng);
                             if (tapHighlightTimeout) clearTimeout(tapHighlightTimeout);
                             tapHighlightTimeout = setTimeout(() => {
-                                polygon.setOptions({ fillOpacity: 0.4, strokeWeight: 1 });
+                                polygon.setOptions(polygonRestingOptions(item.species));
                                 hidePolygonInfo();
                             }, 2000);
                         });
                         newPolys.push(polygon);
                     }
                 });
-                drawnPolygons.set(key, { polygons: newPolys, lastUsedAt: Date.now() });
+                drawnPolygons.set(key, { polygons: newPolys, species: item.species ?? null, lastUsedAt: Date.now() });
             });
 
             activatePolygonIds(incomingIds);
             rememberPolygonQuery(requestBounds, incomingIds);
             adaptPolygonCacheToRenderTime(performance.now() - renderStartedAt);
             evictUnusedPolygons();
+            highlightPendingNearestPolygon();
 
             if (!polygonsFetchedOnce) {
                 polygonsFetchedOnce = true;
@@ -1078,6 +1182,8 @@
         document.head.appendChild(script);
         return () => {
             fetchAbortController?.abort();
+            if (nearestSpeciesMessageTimer) clearTimeout(nearestSpeciesMessageTimer);
+            if (nearestHighlightTimer) clearTimeout(nearestHighlightTimer);
             hideActivePolygons();
             drawnPolygons.clear();
             polygonQueryCache = [];
@@ -1117,12 +1223,14 @@
     {/if}
 
     <div
+        role="group"
+        aria-label="수종 범례"
         on:touchstart={legendSwipeStart}
         on:mousedown={legendSwipeStart}
         style="position:fixed;bottom:calc({legendBottom}px + env(safe-area-inset-bottom, 0px));left:16px;z-index:150;
                 display:flex;flex-direction:column;gap:4px;
                 background:rgba(0,0,0,0.65);color:white;
-                padding:8px 20px 8px 12px;border-radius:10px;font-size:12px;max-width:150px;
+                padding:8px 20px 8px 8px;border-radius:10px;font-size:12px;max-width:190px;
                 touch-action:pan-y;user-select:none;cursor:grab;
                 visibility:{controlsReady ? 'visible' : 'hidden'};
                 transition:{controlsReady ? 'transform 0.25s ease, opacity 0.25s ease' : 'none'};
@@ -1136,16 +1244,38 @@
             title="왼쪽 메뉴 숨기기"
         ></button>
         {#each speciesLegendPrimary as item}
-        <div style="display:flex;align-items:center;gap:6px;white-space:nowrap;">
-            <span style="width:10px;height:10px;border-radius:2px;background:{item.color};flex-shrink:0;"></span>
-            <span>{item.name}</span>
+        <div class="legend-species-row {selectedSpecies === item.name ? 'selected' : ''} {selectedSpecies && selectedSpecies !== item.name ? 'muted' : ''}">
+            <button class="legend-species-select" on:click={() => toggleSpeciesHighlight(item.name)} title="{item.name} 강조" aria-pressed={selectedSpecies === item.name}>
+                <span class="legend-color" style="background:{item.color};"></span>
+                <span>{item.name}</span>
+            </button>
+            <button class="legend-nearest-button" on:click={() => moveToNearestSpecies(item.name)} title="가장 가까운 {item.name}로 이동" aria-label="가장 가까운 {item.name}로 이동">
+                {#if nearestSpeciesLoading === item.name}
+                    <span class="legend-nearest-spinner" aria-hidden="true"></span>
+                {:else}
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>
+                    </svg>
+                {/if}
+            </button>
         </div>
         {/each}
         {#if legendExpanded}
         {#each speciesLegendMore as item}
-        <div style="display:flex;align-items:center;gap:6px;white-space:nowrap;opacity:0.85;">
-            <span style="width:10px;height:10px;border-radius:2px;background:{item.color};flex-shrink:0;"></span>
-            <span>{item.name}</span>
+        <div class="legend-species-row secondary {selectedSpecies === item.name ? 'selected' : ''} {selectedSpecies && selectedSpecies !== item.name ? 'muted' : ''}">
+            <button class="legend-species-select" on:click={() => toggleSpeciesHighlight(item.name)} title="{item.name} 강조" aria-pressed={selectedSpecies === item.name}>
+                <span class="legend-color" style="background:{item.color};"></span>
+                <span>{item.name}</span>
+            </button>
+            <button class="legend-nearest-button" on:click={() => moveToNearestSpecies(item.name)} title="가장 가까운 {item.name}로 이동" aria-label="가장 가까운 {item.name}로 이동">
+                {#if nearestSpeciesLoading === item.name}
+                    <span class="legend-nearest-spinner" aria-hidden="true"></span>
+                {:else}
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>
+                    </svg>
+                {/if}
+            </button>
         </div>
         {/each}
         {/if}
@@ -1168,6 +1298,10 @@
                 background:rgba(0,0,0,0.62);color:white;font-size:13px;
                 box-shadow:2px 0 8px rgba(0,0,0,0.2);
                 touch-action:pan-y;cursor:pointer;">▶</button>
+    {/if}
+
+    {#if nearestSpeciesMessage}
+        <div class="nearest-species-toast" role="status">{nearestSpeciesMessage}</div>
     {/if}
 
     <div style="position:fixed;inset:0;z-index:400;display:{roadviewOpen ? 'block' : 'none'};background:#000;">
@@ -1207,6 +1341,89 @@
         cursor: pointer;
         transform: translateY(-50%);
         animation: legend-handle-nudge 2.2s ease-in-out infinite;
+    }
+
+    .legend-species-row {
+        display: flex;
+        align-items: center;
+        min-height: 28px;
+        border-radius: 6px;
+        transition: background 0.18s ease, opacity 0.18s ease;
+    }
+    .legend-species-row.secondary {
+        opacity: 0.86;
+    }
+    .legend-species-row.selected {
+        background: rgba(77, 171, 247, 0.3);
+        opacity: 1;
+    }
+    .legend-species-row.muted {
+        opacity: 0.5;
+    }
+    .legend-species-select {
+        min-width: 0;
+        flex: 1;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px;
+        border: 0;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        text-align: left;
+        white-space: nowrap;
+        cursor: pointer;
+    }
+    .legend-color {
+        width: 10px;
+        height: 10px;
+        border-radius: 2px;
+        flex-shrink: 0;
+    }
+    .legend-nearest-button {
+        width: 27px;
+        height: 27px;
+        flex: 0 0 27px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 5px;
+        border: 0;
+        border-radius: 50%;
+        background: transparent;
+        color: #8dccff;
+        cursor: pointer;
+    }
+    .legend-nearest-button:active {
+        background: rgba(255, 255, 255, 0.18);
+    }
+    .legend-nearest-button svg {
+        width: 17px;
+        height: 17px;
+    }
+    .legend-nearest-spinner {
+        width: 13px;
+        height: 13px;
+        border: 2px solid rgba(255, 255, 255, 0.3);
+        border-top-color: #8dccff;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+    }
+    .nearest-species-toast {
+        position: fixed;
+        left: 50%;
+        bottom: calc(82px + env(safe-area-inset-bottom, 0px));
+        z-index: 220;
+        transform: translateX(-50%);
+        padding: 9px 15px;
+        border-radius: 20px;
+        background: rgba(20, 24, 28, 0.86);
+        color: white;
+        box-shadow: 0 3px 12px rgba(0, 0, 0, 0.25);
+        font-size: 13px;
+        white-space: nowrap;
+        pointer-events: none;
     }
     .legend-swipe-handle::before {
         content: '';

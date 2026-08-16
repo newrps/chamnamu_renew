@@ -139,6 +139,15 @@ pub struct MapData {
     pub species: Option<String>,
 }
 
+#[derive(Serialize, Debug)]
+pub struct NearestPolygon {
+    pub id: i32,
+    pub species: Option<String>,
+    pub lat: f64,
+    pub lng: f64,
+    pub distance_m: f64,
+}
+
 // POST 요청으로 받을 데이터의 구조체입니다.
 #[derive(Serialize, Deserialize, Debug)]
 pub struct CreateChamnamuData {
@@ -221,4 +230,47 @@ pub async fn get_polygons_in_bbox(
     }).collect();
 
     Ok(map_data_list)
+}
+
+pub async fn get_nearest_polygon_by_species(
+    pool: web::Data<Pool>,
+    lng: f64,
+    lat: f64,
+    species: &str,
+) -> Result<Option<NearestPolygon>, Error> {
+    let client: Client = pool.get().await.map_err(ErrorInternalServerError)?;
+    let query = r#"
+        WITH origin AS (
+            SELECT ST_Transform(ST_SetSRID(ST_MakePoint($1, $2), 4326), 5179) AS geom
+        ),
+        candidates AS MATERIALIZED (
+            SELECT tree.ogc_fid, tree.koftr_nm, tree.wkb_geometry, origin.geom AS origin_geom
+            FROM chamnamu_tree AS tree
+            CROSS JOIN origin
+            WHERE tree.koftr_nm = $3
+            ORDER BY tree.wkb_geometry <-> origin.geom
+            LIMIT 64
+        )
+        SELECT
+            ogc_fid,
+            koftr_nm,
+            ST_Y(ST_Transform(ST_ClosestPoint(wkb_geometry, origin_geom), 4326)) AS lat,
+            ST_X(ST_Transform(ST_ClosestPoint(wkb_geometry, origin_geom), 4326)) AS lng,
+            ST_Distance(wkb_geometry, origin_geom) AS distance_m
+        FROM candidates
+        ORDER BY distance_m
+        LIMIT 1
+    "#;
+
+    let row = client.query_opt(query, &[&lng, &lat, &species])
+        .await
+        .map_err(ErrorInternalServerError)?;
+
+    Ok(row.map(|row| NearestPolygon {
+        id: row.get(0),
+        species: row.get(1),
+        lat: row.get(2),
+        lng: row.get(3),
+        distance_m: row.get(4),
+    }))
 }

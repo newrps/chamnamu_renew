@@ -34,6 +34,36 @@ async fn get_nearby_data(
     Ok(HttpResponse::Ok().json(list))
 }
 
+#[derive(Deserialize)]
+struct NearestPolygonQuery {
+    species: String,
+    lat: f64,
+    lng: f64,
+}
+
+#[get("/api/polygon/nearest")]
+async fn get_nearest_polygon(
+    pool: web::Data<Pool>,
+    query: web::Query<NearestPolygonQuery>,
+) -> Result<HttpResponse> {
+    if query.species.trim().is_empty() || query.species.chars().count() > 50 {
+        return Err(ErrorBadRequest("Invalid species"));
+    }
+    if !(-90.0..=90.0).contains(&query.lat) || !(-180.0..=180.0).contains(&query.lng) {
+        return Err(ErrorBadRequest("Invalid coordinates"));
+    }
+
+    match db::get_nearest_polygon_by_species(
+        pool,
+        query.lng,
+        query.lat,
+        query.species.trim(),
+    ).await? {
+        Some(item) => Ok(HttpResponse::Ok().json(item)),
+        None => Ok(HttpResponse::NotFound().finish()),
+    }
+}
+
 // ── 광고 ──────────────────────────────────────────────────────────────────────
 
 #[get("/api/ads")]
@@ -171,6 +201,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(http_data.clone())
             // 폴리곤
             .service(get_nearby_data)
+            .service(get_nearest_polygon)
             // 광고
             .service(get_ads)
             // 인증
