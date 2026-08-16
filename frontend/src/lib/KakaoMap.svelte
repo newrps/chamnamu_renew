@@ -381,6 +381,21 @@
         }
     }
 
+    let mapResizeObserver: ResizeObserver | null = null;
+
+    // 지도 컨테이너 크기가 바뀔 때(창 크기 조절, 광고 배너 표시/숨김 등) 카카오맵이 자동으로
+    // 알아채지 못해서 현재 위치 오버레이 등이 어긋나 보일 수 있음 - relayout으로 강제 재계산
+    function setupMapResizeHandling() {
+        if (!mapContainer || !map) return;
+        mapResizeObserver = new ResizeObserver(() => {
+            if (!map) return;
+            const center = map.getCenter();
+            (map as any).relayout();
+            map.setCenter(center);
+        });
+        mapResizeObserver.observe(mapContainer);
+    }
+
     function getDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
         const dLat = lat1 - lat2;
         const dLng = lng1 - lng2;
@@ -735,12 +750,14 @@
             if (typeof kakao !== 'undefined' && kakao.maps) {
                 kakao.maps.load(() => {
                     initializeMap();
+                    setupMapResizeHandling();
                 });
             }
         };
         document.head.appendChild(script);
         return () => {
             stopHeading();
+            if (mapResizeObserver) mapResizeObserver.disconnect();
         };
     });
 
