@@ -442,20 +442,29 @@
         if (isHeadingActive) applyMapRotation(currentHeading);
     }
 
+    // 손가락이 몇 개 닿아 있는지 직접 추적함 - 핀치(2손가락) 도중에 카카오가 dragend를 스퓨리어스하게
+    // 여러 번 발생시켜서(핀치=드래그로도 잡히는 듯) 제스처 도중에 회전이 계속 복귀됐다 풀렸다 깜빡이던 문제가 있었음.
+    // 손가락이 실제로 하나도 안 남았을 때만 진짜로 제스처가 끝난 것으로 처리함
+    let activeTouchCount = 0;
+
     // 핀치줌(두 손가락)은 touchstart 시점에 바로 알 수 있어서 직접 감지 - 한 손가락 드래그는
-    // 탭과 구분이 필요해서 카카오 자체 dragstart/dragend 이벤트(진짜 드래그일 때만 발생)에 맡김
+    // 탭과 구분이 필요해서 카카오 자체 dragstart 이벤트(진짜 드래그일 때만 발생)에 맡김
     function handleContainerTouchStart(e: TouchEvent) {
-        if (!isHeadingActive || e.touches.length !== 2) return;
-        enterGestureMode();
-        window.addEventListener('touchend', handleWindowTouchEnd);
-        window.addEventListener('touchcancel', handleWindowTouchEnd);
+        if (!isHeadingActive) return;
+        activeTouchCount = e.touches.length;
+        if (activeTouchCount >= 2) enterGestureMode();
+        window.addEventListener('touchmove', handleWindowTouchTrack, { passive: true });
+        window.addEventListener('touchend', handleWindowTouchTrack);
+        window.addEventListener('touchcancel', handleWindowTouchTrack);
     }
-    function handleWindowTouchEnd(e: TouchEvent) {
-        if (e.touches.length > 0) return; // 손가락이 남아있으면(핀치->한손가락 드래그 전환 등) 계속 유지
+    function handleWindowTouchTrack(e: TouchEvent) {
+        activeTouchCount = e.touches.length;
+        if (activeTouchCount > 0) return;
         exitGestureMode();
         fetchAndDrawPolygons();
-        window.removeEventListener('touchend', handleWindowTouchEnd);
-        window.removeEventListener('touchcancel', handleWindowTouchEnd);
+        window.removeEventListener('touchmove', handleWindowTouchTrack);
+        window.removeEventListener('touchend', handleWindowTouchTrack);
+        window.removeEventListener('touchcancel', handleWindowTouchTrack);
     }
 
     // 데스크탑 휠 줌 - 휠 이벤트가 멈추고 일정 시간 지나면 제스처 종료로 간주
@@ -492,6 +501,9 @@
                 enterGestureMode();
             });
             kakao.maps.event.addListener(map, 'dragend', () => {
+                // 핀치 도중에도 카카오가 dragend를 스퓨리어스하게 발생시킬 수 있어서, 손가락이
+                // 아직 남아있으면(활성 터치 추적값 기준) 무시 - 실제 종료는 touchend 쪽에서 처리함
+                if (activeTouchCount > 0) return;
                 exitGestureMode();
                 fetchAndDrawPolygons();
             });
@@ -884,8 +896,9 @@
                 mapContainer.removeEventListener('touchstart', handleContainerTouchStart);
                 mapContainer.removeEventListener('wheel', handleContainerWheel);
             }
-            window.removeEventListener('touchend', handleWindowTouchEnd);
-            window.removeEventListener('touchcancel', handleWindowTouchEnd);
+            window.removeEventListener('touchmove', handleWindowTouchTrack);
+            window.removeEventListener('touchend', handleWindowTouchTrack);
+            window.removeEventListener('touchcancel', handleWindowTouchTrack);
             if (wheelIdleTimer) clearTimeout(wheelIdleTimer);
         };
     });
