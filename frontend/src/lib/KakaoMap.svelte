@@ -497,11 +497,28 @@
         dragRefAngle = appliedRotationAngle;
         dragRefScale = appliedRotationScale;
         dragCenterPoint = (map as any).getProjection().containerPointFromCoords(map.getCenter());
+        pendingDragDx = 0; pendingDragDy = 0;
+        if (dragRafId !== null) { cancelAnimationFrame(dragRafId); dragRafId = null; }
         // 드래그 전체 구간 누적 디버그값 리셋 - 한 번의 드래그 동안 손가락 총 이동량 vs 실제 적용된 이동량 비교용
         debugDragStartX = clientX; debugDragStartY = clientY;
         debugDragEventCount = 0;
         debugCumInternalX = 0; debugCumInternalY = 0;
         if (isFollowing) pauseFollowing();
+    }
+
+    // 포인터 이벤트(터치/마우스)는 화면 주사율보다 훨씬 자주 발생할 수 있어서, 이벤트마다 바로
+    // setCenter를 부르면 한 프레임 안에 여러 번 호출되어 오히려 튀는(과하게 움직이는) 느낌이 있었음 -
+    // 그래서 프레임당 한 번만 실제로 적용되도록 pending 값에 모아뒀다가 rAF에서 한 번에 처리함
+    let pendingDragDx = 0;
+    let pendingDragDy = 0;
+    let dragRafId: number | null = null;
+
+    function flushPendingDrag() {
+        dragRafId = null;
+        if (pendingDragDx === 0 && pendingDragDy === 0) return;
+        const dx = pendingDragDx, dy = pendingDragDy;
+        pendingDragDx = 0; pendingDragDy = 0;
+        panByRotated(dx, dy);
     }
 
     function customDragMove(clientX: number, clientY: number) {
@@ -520,12 +537,21 @@
         debugCumInternalX += internalDx; debugCumInternalY += internalDy;
         debugCumScreenX = clientX - debugDragStartX; debugCumScreenY = clientY - debugDragStartY;
         // 드래그 방향으로 화면 내용이 손가락을 따라오도록 부호 반전
-        panByRotated(-internalDx, -internalDy);
+        pendingDragDx += -internalDx;
+        pendingDragDy += -internalDy;
+        if (dragRafId === null) {
+            dragRafId = requestAnimationFrame(flushPendingDrag);
+        }
     }
 
     function customDragEnd() {
         if (!customDragActive) return;
         customDragActive = false;
+        if (dragRafId !== null) {
+            cancelAnimationFrame(dragRafId);
+            dragRafId = null;
+        }
+        flushPendingDrag(); // 마지막 남은 이동량 반영
         dragCenterPoint = null;
         if (isHeadingActive) applyMapRotation(currentHeading); // 드래그 중 멈춰뒀던 회전을 최신값으로 즉시 반영
         fetchAndDrawPolygons();
