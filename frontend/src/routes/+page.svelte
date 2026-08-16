@@ -1239,6 +1239,7 @@
     <div class="map-wrapper {showAdBanner ? 'with-ad' : ''}">
         <KakaoMap
             bind:this={mapComponent}
+            legendBottom={(showAdBanner ? 190 : 80) + 56}
             on:searchresults={onSearchResults}
             on:headingupdate={onHeadingUpdate}
             on:headingstop={onHeadingStop}
