@@ -862,15 +862,27 @@
     }
     .right-controls-swipe-hint {
         position: absolute;
-        right: 72px;
+        right: 64px;
+        width: 20px;
+        height: 112px;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        touch-action: pan-y;
+        animation: right-swipe-hint 2s ease-in-out infinite;
+        z-index: 6;
+    }
+    .right-controls-swipe-hint::before {
+        content: '';
         width: 4px;
         height: 112px;
         border-radius: 2px;
         background: #4dabf7;
         box-shadow: 0 0 6px rgba(77, 171, 247, 0.65);
-        touch-action: pan-y;
-        animation: right-swipe-hint 2s ease-in-out infinite;
-        z-index: 6;
     }
     @keyframes right-swipe-hint {
         0%, 70%, 100% { transform: translateX(0); opacity: 0.65; }
@@ -1563,11 +1575,13 @@
         >🚶</button>
 
         {#if !rightControlsHidden}
-            <span
+            <button
                 class="right-controls-swipe-hint"
                 style="bottom: calc({rightControlsGripBottom}px + env(safe-area-inset-bottom, 0px));"
-                aria-hidden="true"
-            ></span>
+                on:click={() => setControlsHidden('right', true)}
+                aria-label="오른쪽 메뉴 숨기기"
+                title="오른쪽 메뉴 숨기기"
+            ></button>
         {/if}
 
         </div>

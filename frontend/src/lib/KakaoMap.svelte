@@ -995,7 +995,12 @@
                 transform:translateX({legendHidden ? '-150%' : '0'});
                 opacity:{legendHidden ? 0 : 1};
                 pointer-events:{legendHidden ? 'none' : 'auto'};">
-        <span class="legend-swipe-handle"></span>
+        <button
+            class="legend-swipe-handle"
+            on:click|stopPropagation={() => setLegendHidden(true)}
+            aria-label="왼쪽 메뉴 숨기기"
+            title="왼쪽 메뉴 숨기기"
+        ></button>
         {#each speciesLegendPrimary as item}
         <div style="display:flex;align-items:center;gap:6px;white-space:nowrap;">
             <span style="width:10px;height:10px;border-radius:2px;background:{item.color};flex-shrink:0;"></span>
@@ -1055,14 +1060,27 @@
 
     .legend-swipe-handle {
         position: absolute;
-        right: 6px;
+        right: -2px;
         top: 50%;
+        width: 20px;
+        height: 56px;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transform: translateY(-50%);
+        animation: legend-handle-nudge 2.2s ease-in-out infinite;
+    }
+    .legend-swipe-handle::before {
+        content: '';
         width: 4px;
         height: 36px;
         border-radius: 2px;
         background: #4dabf7;
-        transform: translateY(-50%);
-        animation: legend-handle-nudge 2.2s ease-in-out infinite;
+        box-shadow: 0 0 6px rgba(77, 171, 247, 0.65);
     }
 
     @keyframes legend-handle-nudge {
