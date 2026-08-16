@@ -13,6 +13,7 @@
 	const VITE_KAKAO_MAP_API_KEY: string = import.meta.env.VITE_KAKAO_MAP_API_KEY;
     let map: kakao.maps.Map;
     let ps: kakao.maps.services.Places;
+    let mapViewport: HTMLElement;
     let mapContainer: HTMLElement;
     let currentMarker: kakao.maps.Marker | null = null;
     export let legendBottom: number = 136;
@@ -139,27 +140,23 @@
         if (arrow) arrow.style.display = headingMode === 'north-up' ? '' : 'none';
     }
 
-    let appliedRotationScale = 1; // mapContainer에 실제로 적용된 확대 배율
     let currentHeading = 0;
     let continuousHeading = 0;
     let appliedRotationAngle = 0; // mapContainer에 실제로 적용된 CSS 회전각 (드래그 보정 계산에 사용)
     let rafId: number | null = null;
     let interactionUnlockTimer: ReturnType<typeof setTimeout> | null = null;
 
-    // 회전된 사각형(지도 컨테이너)이 원래 화면 영역을 모서리까지 완전히 덮으려면 필요한 최소 확대 배율.
-    // 화면이 정사각형이 아니라서(특히 세로가 긴 모바일) 고정 배율로는 45도 부근에서 모서리가 비어 보였음
-    function coverageScale(angleDeg: number): number {
-        if (!mapContainer) return 1;
-        const w = mapContainer.clientWidth || 1;
-        const h = mapContainer.clientHeight || 1;
-        const rad = angleDeg * Math.PI / 180;
-        const cos = Math.abs(Math.cos(rad));
-        const sin = Math.abs(Math.sin(rad));
-        const a = w / 2, b = h / 2;
-        const needed = Math.max(cos + (b / a) * sin, (a / b) * sin + cos);
-        // 회전량에 비례해 여유를 더한다. 0/180도에서는 정확히 1이 되어 북쪽 고정 전환 시
-        // 불필요한 5% 확대/축소가 다시 발생하지 않도록 한다.
-        return Math.min(needed + 0.05 * sin, 3);
+    // 뷰포트 대각선 길이의 정사각형 지도를 렌더링하면 어떤 각도로 돌려도 모서리가 비지 않는다.
+    // 기존 CSS scale 보정을 없애 헤딩업 -> 북쪽 고정 전환 시 발생하던 확대/축소 튐도 제거한다.
+    function sizeRotatableMapContainer(): boolean {
+        if (!mapViewport || !mapContainer) return false;
+        const side = Math.ceil(Math.hypot(mapViewport.clientWidth, mapViewport.clientHeight));
+        if (side <= 0 || mapContainer.style.width === `${side}px`) return false;
+        mapContainer.style.width = `${side}px`;
+        mapContainer.style.height = `${side}px`;
+        mapContainer.style.marginLeft = `${-side / 2}px`;
+        mapContainer.style.marginTop = `${-side / 2}px`;
+        return true;
     }
     let currentLat = 0;
     let currentLng = 0;
@@ -189,12 +186,10 @@
 
     function applyContainerTransform(angle: number, withTransition: boolean) {
         if (!mapContainer) return;
-        const scale = coverageScale(angle);
         mapContainer.style.transition = withTransition ? 'transform 0.2s linear' : 'none';
-        mapContainer.style.transform = `rotate(${angle}deg) scale(${scale})`;
+        mapContainer.style.transform = `rotate(${angle}deg)`;
         mapContainer.style.transformOrigin = '50% 50%';
         appliedRotationAngle = angle;
-        appliedRotationScale = scale;
     }
 
     function normalizeHeading(heading: number): number {
@@ -447,7 +442,6 @@
         currentHeading = 0;
         continuousHeading = 0;
         appliedRotationAngle = 0;
-        appliedRotationScale = 1;
         if (interactionUnlockTimer) {
             clearTimeout(interactionUnlockTimer);
             interactionUnlockTimer = null;
@@ -456,7 +450,7 @@
         absoluteOrientationReceived = false;
         if (mapContainer) {
             mapContainer.style.transition = '';
-            mapContainer.style.transform = '';
+            mapContainer.style.transform = 'rotate(0deg)';
         }
         lastPolygonUpdate = 0;
         lastCenter = null;
@@ -490,6 +484,7 @@
 
     function initializeMap() {
         if (typeof kakao !== 'undefined' && kakao.maps) {
+            sizeRotatableMapContainer();
             const mapOption = {
                 center: new kakao.maps.LatLng(37.254971339188, 127.1148388815),
                 level: 3,
@@ -526,16 +521,17 @@
 
     let mapResizeObserver: ResizeObserver | null = null;
 
-    // 지도 컨테이너 크기가 바뀔 때(창 크기 조절, 광고 배너 표시/숨김 등) 카카오맵이 자동으로
-    // 알아채지 못해서 현재 위치 오버레이 등이 어긋나 보일 수 있음 - relayout으로 강제 재계산
+    // 뷰포트 크기가 바뀌면 대각선 정사각형을 다시 계산하고 카카오맵 레이아웃을 갱신한다.
     function setupMapResizeHandling() {
-        if (!mapContainer || !map) return;
+        if (!mapViewport || !mapContainer || !map) return;
         mapResizeObserver = new ResizeObserver(() => {
-            // 나침반/현재위치 추적 중엔 건드리지 않음 - relayout/setCenter가 추적을 끊어버리는 문제가 있었음
-            if (!map || isHeadingActive) return;
+            if (!map || !sizeRotatableMapContainer()) return;
+            const center = map.getCenter();
             (map as any).relayout();
+            map.setCenter(center);
+            if (isHeadingActive) applyMapRotation(currentHeading);
         });
-        mapResizeObserver.observe(mapContainer);
+        mapResizeObserver.observe(mapViewport);
     }
 
     function getDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -910,8 +906,8 @@
 
 </script>
 
-<div style="position:relative;width:100%;height:100vh;overflow:hidden;">
-    <div bind:this={mapContainer} style="width:100%;height:100%;"></div>
+<div bind:this={mapViewport} style="position:relative;width:100%;height:100vh;overflow:hidden;">
+    <div bind:this={mapContainer} style="position:absolute;left:50%;top:50%;transform:rotate(0deg);"></div>
 
     {#if $locating}
     <div style="position:absolute;bottom:80px;left:50%;transform:translateX(-50%);z-index:200;pointer-events:none;
