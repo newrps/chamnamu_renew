@@ -23,7 +23,7 @@
     // 참나무류: 채집지도의 핵심이라 선명한 색으로 표시
     const OAK_SPECIES = ['신갈나무', '굴참나무', '상수리나무', '기타참나무류'];
     // 그 외 사슴벌레 관련 수종: 참나무보다 옅은 색으로 구분만 되게 표시
-    const OTHER_SPECIES = ['밤나무', '자작나무', '포플러', '오리나무', '벚나무', '물푸레나무'];
+    const OTHER_SPECIES = ['밤나무', '자작나무', '포플러', '오리나무', '벚나무', '물푸레나무', '느티나무', '고로쇠나무', '가시나무', '구실잣밤나무', '서어나무'];
 
     const SPECIES_COLORS: Record<string, { fill: string; stroke: string }> = {
         // 참나무류: 초록 계열로 통일 (명도/색상만 살짝 다르게 구분)
@@ -37,7 +37,12 @@
         '포플러':       { fill: '#c68a4a', stroke: '#9c6c38' },
         '오리나무':     { fill: '#7c6a52', stroke: '#5f5140' },
         '벚나무':       { fill: '#a9788a', stroke: '#835d6b' },
-        '물푸레나무':   { fill: '#78889a', stroke: '#5c6878' }
+        '물푸레나무':   { fill: '#78889a', stroke: '#5c6878' },
+        '느티나무':     { fill: '#a68a3d', stroke: '#816a2f' },
+        '고로쇠나무':   { fill: '#a85c4a', stroke: '#834637' },
+        '가시나무':     { fill: '#5c8a86', stroke: '#476b68' },
+        '구실잣밤나무': { fill: '#bfa14a', stroke: '#967d38' },
+        '서어나무':     { fill: '#8a7a9a', stroke: '#6b5f7a' }
     };
     const DEFAULT_SPECIES_COLOR = { fill: '#898781', stroke: '#6b6963' };
     function colorForSpecies(species: string | null | undefined) {
