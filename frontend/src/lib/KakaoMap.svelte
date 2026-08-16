@@ -17,6 +17,45 @@
     let mapContainer: HTMLElement;
     let currentMarker: kakao.maps.Marker | null = null;
     export let legendBottom: number = 136;
+    export let overviewHidden = false;
+    let overviewExpanded = false;
+
+    const OVERVIEW_GEO = {
+        minLng: 124.4, maxLng: 131.2,
+        minLat: 32.8, maxLat: 38.8,
+        width: 120, height: 160, padding: 6
+    };
+    const KOREA_MAINLAND: [number, number][] = [
+        [126.10, 38.55], [126.72, 38.67], [127.18, 38.30], [128.05, 38.58],
+        [128.55, 38.25], [129.05, 37.75], [129.42, 37.12], [129.55, 36.35],
+        [129.38, 35.72], [129.10, 35.15], [128.58, 34.88], [127.92, 34.70],
+        [127.28, 34.47], [126.55, 34.38], [126.12, 34.72], [126.32, 35.25],
+        [125.98, 35.72], [126.30, 36.24], [126.03, 36.72], [126.42, 37.24],
+        [126.12, 37.78]
+    ];
+
+    function overviewProject(lng: number, lat: number) {
+        const { minLng, maxLng, minLat, maxLat, width, height, padding } = OVERVIEW_GEO;
+        const clampedLng = Math.max(minLng, Math.min(maxLng, lng));
+        const clampedLat = Math.max(minLat, Math.min(maxLat, lat));
+        return {
+            x: padding + ((clampedLng - minLng) / (maxLng - minLng)) * (width - padding * 2),
+            y: padding + ((maxLat - clampedLat) / (maxLat - minLat)) * (height - padding * 2)
+        };
+    }
+
+    const KOREA_MAINLAND_POINTS = KOREA_MAINLAND
+        .map(([lng, lat]) => {
+            const point = overviewProject(lng, lat);
+            return `${point.x.toFixed(1)},${point.y.toFixed(1)}`;
+        })
+        .join(' ');
+    const JEJU_POINT = overviewProject(126.55, 33.38);
+    const ULLEUNG_POINT = overviewProject(130.90, 37.50);
+
+    let overviewCenterPoint = overviewProject(127.1148388815, 37.254971339188);
+    let overviewViewport = { x: 0, y: 0, width: 0, height: 0 };
+    let overviewUpdateRaf: number | null = null;
 
     type PolygonBounds = { minLat: number; minLng: number; maxLat: number; maxLng: number };
     type CachedPolygon = {
@@ -117,6 +156,41 @@
         if (legendHidden === hidden) return;
         legendHidden = hidden;
         dispatch('legendvisibilitychange', { hidden });
+    }
+
+    function setOverviewHidden(hidden: boolean) {
+        if (overviewHidden === hidden) return;
+        overviewHidden = hidden;
+        if (!hidden) overviewExpanded = false;
+        dispatch('overviewvisibilitychange', { hidden });
+    }
+
+    function updateOverviewMap() {
+        if (!map) return;
+        const center = map.getCenter() as any;
+        const bounds = map.getBounds() as any;
+        const sw = bounds.getSouthWest();
+        const ne = bounds.getNorthEast();
+        overviewCenterPoint = overviewProject(center.getLng(), center.getLat());
+
+        const swPoint = overviewProject(sw.getLng(), sw.getLat());
+        const nePoint = overviewProject(ne.getLng(), ne.getLat());
+        const rawX = Math.min(swPoint.x, nePoint.x);
+        const rawY = Math.min(swPoint.y, nePoint.y);
+        overviewViewport = {
+            x: Math.min(rawX, OVERVIEW_GEO.width - OVERVIEW_GEO.padding - 2),
+            y: Math.min(rawY, OVERVIEW_GEO.height - OVERVIEW_GEO.padding - 2),
+            width: Math.max(2, Math.abs(nePoint.x - swPoint.x)),
+            height: Math.max(2, Math.abs(swPoint.y - nePoint.y))
+        };
+    }
+
+    function scheduleOverviewUpdate() {
+        if (overviewUpdateRaf !== null) return;
+        overviewUpdateRaf = requestAnimationFrame(() => {
+            overviewUpdateRaf = null;
+            updateOverviewMap();
+        });
     }
 
     function legendSwipeStart(e: TouchEvent | MouseEvent) {
@@ -628,6 +702,9 @@
             setMapInteractionEnabled(headingMode !== 'heading-up');
 
             fetchAndDrawPolygons();
+            scheduleOverviewUpdate();
+
+            kakao.maps.event.addListener(map, 'bounds_changed', scheduleOverviewUpdate);
 
             kakao.maps.event.addListener(map, 'dragstart', () => {
                 // 우리 코드가 panTo()로 지도를 움직인 것이면(현재위치 추적 중 계속 발생) 무시
@@ -1198,6 +1275,7 @@
             fetchAbortController?.abort();
             if (nearestSpeciesMessageTimer) clearTimeout(nearestSpeciesMessageTimer);
             if (nearestHighlightTimer) clearTimeout(nearestHighlightTimer);
+            if (overviewUpdateRaf !== null) cancelAnimationFrame(overviewUpdateRaf);
             hideActivePolygons();
             drawnPolygons.clear();
             polygonQueryCache = [];
@@ -1234,6 +1312,70 @@
         </svg>
         정확한 위치 찾는 중...
     </div>
+    {/if}
+
+    {#if controlsReady && !overviewHidden}
+        <div class="overview-map {overviewExpanded ? 'expanded' : ''}">
+            <button
+                class="overview-map-canvas"
+                on:click={() => overviewExpanded = !overviewExpanded}
+                aria-label={overviewExpanded ? '대한민국 미니맵 축소' : '대한민국 미니맵 확대'}
+                title={overviewExpanded ? '미니맵 축소' : '미니맵 확대'}
+            >
+                <svg viewBox="0 0 120 160" role="img" aria-label="현재 지도 위치를 표시한 대한민국 지도">
+                    <defs>
+                        <linearGradient id="overview-sea" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0" stop-color="#eaf5ff"/>
+                            <stop offset="1" stop-color="#d8ecfa"/>
+                        </linearGradient>
+                        <filter id="overview-shadow" x="-20%" y="-20%" width="140%" height="140%">
+                            <feDropShadow dx="0" dy="1" stdDeviation="1" flood-opacity="0.22"/>
+                        </filter>
+                    </defs>
+                    <rect width="120" height="160" rx="9" fill="url(#overview-sea)"/>
+                    <g stroke="#bad5e7" stroke-width="0.45" stroke-dasharray="2 3" opacity="0.65">
+                        <path d="M6 42H114M6 80H114M6 118H114"/>
+                        <path d="M33 6V154M60 6V154M87 6V154"/>
+                    </g>
+                    <g fill="#d7e7ce" stroke="#63855c" stroke-width="1.2" filter="url(#overview-shadow)">
+                        <polygon points={KOREA_MAINLAND_POINTS}/>
+                        <ellipse cx={JEJU_POINT.x} cy={JEJU_POINT.y} rx="7" ry="3.2" transform="rotate(-12 {JEJU_POINT.x} {JEJU_POINT.y})"/>
+                        <circle cx={ULLEUNG_POINT.x} cy={ULLEUNG_POINT.y} r="1.8"/>
+                    </g>
+                    <path d="M31 14H89" stroke="#82999f" stroke-width="0.8" stroke-dasharray="2 2" opacity="0.8"/>
+                    <rect
+                        x={overviewViewport.x}
+                        y={overviewViewport.y}
+                        width={overviewViewport.width}
+                        height={overviewViewport.height}
+                        rx="1"
+                        fill="rgba(26,115,232,0.18)"
+                        stroke="#1a73e8"
+                        stroke-width="1.4"
+                    />
+                    <circle cx={overviewCenterPoint.x} cy={overviewCenterPoint.y} r="4.8" fill="rgba(255,64,64,0.22)"/>
+                    <circle cx={overviewCenterPoint.x} cy={overviewCenterPoint.y} r="2.5" fill="#e53935" stroke="white" stroke-width="1"/>
+                    <text x="8" y="151" fill="#426071" font-size="7" font-weight="700">대한민국</text>
+                </svg>
+            </button>
+            <button
+                class="overview-map-close"
+                on:click|stopPropagation={() => setOverviewHidden(true)}
+                aria-label="대한민국 미니맵 숨기기"
+                title="미니맵 숨기기"
+            >×</button>
+        </div>
+    {:else if controlsReady && overviewHidden}
+        <button
+            class="overview-map-reopen"
+            on:click={() => setOverviewHidden(false)}
+            aria-label="대한민국 미니맵 보이기"
+            title="미니맵 보이기"
+        >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="m3 6 5-3 8 3 5-3v15l-5 3-8-3-5 3V6Z"/><path d="M8 3v15M16 6v15"/>
+            </svg>
+        </button>
     {/if}
 
     <div
@@ -1341,6 +1483,95 @@
     @keyframes spin {
         from { transform: rotate(0deg); }
         to   { transform: rotate(360deg); }
+    }
+
+    .overview-map {
+        position: absolute;
+        top: 84px;
+        left: 16px;
+        z-index: 9;
+        width: 102px;
+        height: 136px;
+        border: 1px solid rgba(255, 255, 255, 0.9);
+        border-radius: 11px;
+        background: #eaf5ff;
+        box-shadow: 0 3px 12px rgba(0, 0, 0, 0.24);
+        overflow: hidden;
+        transition: width 0.2s ease, height 0.2s ease, opacity 0.2s ease;
+    }
+    .overview-map.expanded {
+        width: 162px;
+        height: 216px;
+    }
+    .overview-map-canvas {
+        width: 100%;
+        height: 100%;
+        display: block;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        cursor: pointer;
+    }
+    .overview-map-canvas svg {
+        width: 100%;
+        height: 100%;
+        display: block;
+    }
+    .overview-map-close {
+        position: absolute;
+        top: 4px;
+        right: 4px;
+        width: 22px;
+        height: 22px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0 0 2px;
+        border: 0;
+        border-radius: 50%;
+        background: rgba(25, 45, 58, 0.68);
+        color: white;
+        font-size: 17px;
+        line-height: 1;
+        cursor: pointer;
+    }
+    .overview-map-reopen {
+        position: absolute;
+        top: 96px;
+        left: 0;
+        z-index: 9;
+        width: 30px;
+        height: 48px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 5px;
+        border: 0;
+        border-radius: 0 9px 9px 0;
+        background: rgba(25, 45, 58, 0.72);
+        color: white;
+        box-shadow: 2px 2px 9px rgba(0, 0, 0, 0.2);
+        cursor: pointer;
+    }
+    .overview-map-reopen svg {
+        width: 19px;
+        height: 19px;
+    }
+
+    @media (max-width: 768px) {
+        .overview-map {
+            top: 100px;
+            left: 10px;
+            width: 88px;
+            height: 118px;
+        }
+        .overview-map.expanded {
+            width: 148px;
+            height: 198px;
+        }
+        .overview-map-reopen {
+            top: 108px;
+        }
     }
 
     .legend-swipe-handle {

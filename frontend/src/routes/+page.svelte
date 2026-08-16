@@ -173,6 +173,7 @@
     // 모바일 좌우 컨트롤 묶음 스와이프
     let leftControlsHidden = false;
     let rightControlsHidden = false;
+    let overviewMapHidden = false;
     let menuStateReady = false;
     let controlSwipeSide: 'left' | 'right' | null = null;
     let controlSwipeStartX = 0;
@@ -194,6 +195,11 @@
     function onLegendVisibilityChange(event: CustomEvent<{ hidden: boolean }>) {
         leftControlsHidden = event.detail.hidden;
         setCookie('map_left_controls_hidden', event.detail.hidden ? '1' : '0', 30);
+    }
+
+    function onOverviewVisibilityChange(event: CustomEvent<{ hidden: boolean }>) {
+        overviewMapHidden = event.detail.hidden;
+        setCookie('map_overview_hidden', event.detail.hidden ? '1' : '0', 30);
     }
 
     function handleControlSwipeStart(event: TouchEvent, side: 'left' | 'right') {
@@ -500,6 +506,7 @@
         if (getCookie('search_panel_hidden') === '1') isHidden = true;
         leftControlsHidden = getCookie('map_left_controls_hidden') === '1';
         rightControlsHidden = getCookie('map_right_controls_hidden') === '1';
+        overviewMapHidden = getCookie('map_overview_hidden') === '1';
         requestAnimationFrame(() => { menuStateReady = true; });
 
         // 인증 초기화 (URL 토큰 처리 + localStorage 복원)
@@ -1480,6 +1487,7 @@
             bind:isSatellite
             bind:roadviewMode
             bind:legendHidden={leftControlsHidden}
+            bind:overviewHidden={overviewMapHidden}
             controlsReady={menuStateReady}
             legendBottom={(showAdBanner ? 116 : 20) + 56}
             on:searchresults={onSearchResults}
@@ -1491,6 +1499,7 @@
             on:fetcherror={onPolygonFetchError}
             on:polygonsfetched={() => { polygonsReady = true; }}
             on:legendvisibilitychange={onLegendVisibilityChange}
+            on:overviewvisibilitychange={onOverviewVisibilityChange}
         />
 
         <!-- 왼쪽 메뉴: 채집 예보 FAB + KakaoMap 수종 범례 -->
