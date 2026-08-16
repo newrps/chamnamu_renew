@@ -140,9 +140,6 @@
     }
 
     let appliedRotationScale = 1; // mapContainer에 실제로 적용된 확대 배율
-    // 드래그/핀치/휠 제스처 도중엔 지도를 잠깐 회전 안 된 상태로 되돌려서 카카오 네이티브 드래그/줌에 맡김 -
-    // 회전된 채로 커스텀 좌표변환을 직접 계산하면 방향/속도가 계속 미묘하게 어긋나는 문제가 있었음
-    let gestureActive = false;
     let currentHeading = 0;
     let continuousHeading = 0;
     let appliedRotationAngle = 0; // mapContainer에 실제로 적용된 CSS 회전각 (드래그 보정 계산에 사용)
@@ -222,9 +219,7 @@
         if (diff < -180) diff += 360;
         continuousHeading += diff;
 
-        // 재중심(팔로잉) 여부와 상관없이 회전 자체는 항상 실시간으로 반영 - 화면을 옮겨서 보고 있어도 방향은 계속 맞아야 함.
-        // 단, 드래그/핀치/휠 제스처 도중엔 화면이 회전 안 된 상태로 고정되어 있으므로 건드리지 않음
-        if (gestureActive) return;
+        // 재중심(팔로잉) 여부와 상관없이 현재 모드의 지도/마커 회전을 항상 실시간으로 반영한다.
         if (rafId !== null) cancelAnimationFrame(rafId);
         const angle = continuousHeading;
         const mapAngle = headingMode === 'heading-up' ? -angle : 0;
@@ -408,7 +403,6 @@
     export function setHeadingMode(mode: ActiveHeadingMode) {
         if (!isHeadingActive) return;
         headingMode = mode;
-        gestureActive = false;
         dispatch('headingmodechange', { mode: headingMode });
         updateHeadingMarkerAppearance();
         applyMapRotation(currentHeading);
@@ -449,7 +443,6 @@
         continuousHeading = 0;
         appliedRotationAngle = 0;
         appliedRotationScale = 1;
-        gestureActive = false;
         absoluteOrientationReceived = false;
         if (mapContainer) {
             mapContainer.style.transition = '';
@@ -461,26 +454,31 @@
         dispatch('headingstop');
     }
 
-    // 드래그/핀치/휠 제스처 도중엔 화면을 회전 안 된(북쪽 고정) 상태로 잠깐 되돌려서
-    // 카카오 기본 드래그/줌(이미 검증된 네이티브 동작)에 그대로 맡김 - 회전된 채로 좌표를 직접
-    // 계산해서 처리하려 했더니 방향/속도가 계속 미묘하게 어긋나는 문제가 있었음. 제스처가 끝나면
-    // 다시 부드럽게 회전 상태로 복귀함
+    // 헤딩업 상태에서 사용자가 지도를 직접 조작하면 북쪽 고정 모드로 전환한다.
+    // 회전된 좌표계에서 카카오 기본 드래그/줌을 실행할 때 생기는 방향 오차를 피하고,
+    // 손을 뗀 뒤 지도가 다시 회전하면서 튀지 않도록 전환 상태를 유지한다.
     function enterGestureMode() {
         if (!isHeadingActive) return;
         if (isFollowing) pauseFollowing();
-        // 북쪽 고정 모드는 지도에 CSS 회전이 없으므로 카카오 기본 제스처를 그대로 사용한다.
-        if (headingMode !== 'heading-up' || gestureActive) return;
-        gestureActive = true;
+        if (headingMode !== 'heading-up') return;
+
+        headingMode = 'north-up';
+        dispatch('headingmodechange', { mode: headingMode });
+        updateHeadingMarkerAppearance();
+        if (rafId !== null) {
+            cancelAnimationFrame(rafId);
+            rafId = null;
+        }
+        if (overlayElement) {
+            overlayElement.style.transition = 'none';
+            overlayElement.style.transform = `rotate(${continuousHeading}deg)`;
+        }
         if (mapContainer) {
             mapContainer.style.transition = 'none';
             mapContainer.style.transform = 'none';
         }
-    }
-
-    function exitGestureMode() {
-        if (!gestureActive) return;
-        gestureActive = false;
-        if (isHeadingActive) applyMapRotation(currentHeading);
+        appliedRotationAngle = 0;
+        appliedRotationScale = 1;
     }
 
     // 손가락이 몇 개 닿아 있는지 직접 추적함 - 핀치(2손가락) 도중에 카카오가 dragend를 스퓨리어스하게
@@ -501,7 +499,6 @@
     function handleWindowTouchTrack(e: TouchEvent) {
         activeTouchCount = e.touches.length;
         if (activeTouchCount > 0) return;
-        exitGestureMode();
         fetchAndDrawPolygons();
         window.removeEventListener('touchmove', handleWindowTouchTrack);
         window.removeEventListener('touchend', handleWindowTouchTrack);
@@ -516,7 +513,6 @@
         if (wheelIdleTimer) clearTimeout(wheelIdleTimer);
         wheelIdleTimer = setTimeout(() => {
             wheelIdleTimer = null;
-            exitGestureMode();
             fetchAndDrawPolygons();
         }, 400);
     }
@@ -545,12 +541,12 @@
                 // 핀치 도중에도 카카오가 dragend를 스퓨리어스하게 발생시킬 수 있어서, 손가락이
                 // 아직 남아있으면(활성 터치 추적값 기준) 무시 - 실제 종료는 touchend 쪽에서 처리함
                 if (activeTouchCount > 0) return;
-                exitGestureMode();
                 fetchAndDrawPolygons();
             });
             kakao.maps.event.addListener(map, 'zoom_changed', () => {
                 fetchAndDrawPolygons();
             });
+            kakao.maps.event.addListener(map, 'zoom_start', enterGestureMode);
             kakao.maps.event.addListener(map, 'click', hidePolygonInfo);
         } else {
             console.error("카카오맵 API 스크립트가 아직 로드되지 않았습니다.");
