@@ -144,8 +144,7 @@
     let continuousHeading = 0;
     let appliedRotationAngle = 0; // mapContainer에 실제로 적용된 CSS 회전각 (드래그 보정 계산에 사용)
     let rafId: number | null = null;
-    let gestureActive = false;
-    let pendingNorthUpAfterGesture = false;
+    let interactionUnlockTimer: ReturnType<typeof setTimeout> | null = null;
 
     // 회전된 사각형(지도 컨테이너)이 원래 화면 영역을 모서리까지 완전히 덮으려면 필요한 최소 확대 배율.
     // 화면이 정사각형이 아니라서(특히 세로가 긴 모바일) 고정 배율로는 45도 부근에서 모서리가 비어 보였음
@@ -222,10 +221,6 @@
         if (diff > 180) diff -= 360;
         if (diff < -180) diff += 360;
         continuousHeading += diff;
-
-        // 카카오맵이 드래그/줌 좌표를 계산하는 도중 바깥 CSS 좌표계를 바꾸면 중심점이 튄다.
-        // 센서 값은 계속 갱신하되 화면 변환은 제스처가 끝날 때까지 그대로 고정한다.
-        if (gestureActive) return;
 
         // 재중심(팔로잉) 여부와 상관없이 현재 모드의 지도/마커 회전을 항상 실시간으로 반영한다.
         if (rafId !== null) cancelAnimationFrame(rafId);
@@ -340,6 +335,7 @@
         headingMode = mode;
         isHeadingActive = true;
         isFollowing = true;
+        setMapInteractionEnabled(mode !== 'heading-up');
         dispatch('headingmodechange', { mode: headingMode });
         startOrientationTracking();
         locating.set(true);
@@ -411,8 +407,7 @@
     export function setHeadingMode(mode: ActiveHeadingMode) {
         if (!isHeadingActive) return;
         headingMode = mode;
-        gestureActive = false;
-        pendingNorthUpAfterGesture = false;
+        setMapInteractionEnabled(mode !== 'heading-up');
         dispatch('headingmodechange', { mode: headingMode });
         updateHeadingMarkerAppearance();
         applyMapRotation(currentHeading);
@@ -453,8 +448,11 @@
         continuousHeading = 0;
         appliedRotationAngle = 0;
         appliedRotationScale = 1;
-        gestureActive = false;
-        pendingNorthUpAfterGesture = false;
+        if (interactionUnlockTimer) {
+            clearTimeout(interactionUnlockTimer);
+            interactionUnlockTimer = null;
+        }
+        setMapInteractionEnabled(true);
         absoluteOrientationReceived = false;
         if (mapContainer) {
             mapContainer.style.transition = '';
@@ -466,75 +464,28 @@
         dispatch('headingstop');
     }
 
-    // 헤딩업 상태에서 사용자 조작이 시작되면 현재 CSS 좌표계를 그대로 고정한다.
-    // 카카오맵이 제스처 좌표를 계산하는 중에 transform을 바꾸지 않는 것이 핵심이다.
-    function enterGestureMode() {
-        if (!isHeadingActive) return;
-        if (isFollowing) pauseFollowing();
-        if (headingMode !== 'heading-up') return;
-
-        gestureActive = true;
-        pendingNorthUpAfterGesture = true;
-        if (rafId !== null) {
-            cancelAnimationFrame(rafId);
-            rafId = null;
-        }
+    function setMapInteractionEnabled(enabled: boolean) {
+        if (!map) return;
+        (map as any).setDraggable(enabled);
+        (map as any).setZoomable(enabled);
     }
 
-    // 손가락/휠 조작이 완전히 끝난 뒤에만 북쪽 고정 모드와 마커 모양을 적용한다.
-    function exitGestureMode() {
-        if (!gestureActive) return;
-        gestureActive = false;
-        if (!pendingNorthUpAfterGesture || !isHeadingActive) return;
+    // 헤딩업에서는 카카오맵 자체 제스처를 잠가 좌표계가 바뀌는 도중 드래그/줌이 시작되지 않게 한다.
+    // 첫 입력은 북쪽 고정 전환에만 사용하고, 짧은 전환이 끝난 뒤 다음 입력부터 지도를 조작한다.
+    function switchToNorthUpForInteraction() {
+        if (!isHeadingActive || headingMode !== 'heading-up') return;
+        if (isFollowing) pauseFollowing();
 
-        pendingNorthUpAfterGesture = false;
         headingMode = 'north-up';
         dispatch('headingmodechange', { mode: headingMode });
         updateHeadingMarkerAppearance();
-        if (overlayElement) {
-            overlayElement.style.transition = 'transform 0.25s ease-out';
-            overlayElement.style.transform = `rotate(${continuousHeading}deg)`;
-        }
-        applyContainerTransform(0, true);
-    }
+        applyMapRotation(currentHeading);
 
-    // 손가락이 몇 개 닿아 있는지 직접 추적함 - 핀치(2손가락) 도중에 카카오가 dragend를 스퓨리어스하게
-    // 여러 번 발생시켜서(핀치=드래그로도 잡히는 듯) 제스처 도중에 회전이 계속 복귀됐다 풀렸다 깜빡이던 문제가 있었음.
-    // 손가락이 실제로 하나도 안 남았을 때만 진짜로 제스처가 끝난 것으로 처리함
-    let activeTouchCount = 0;
-
-    // 핀치줌(두 손가락)은 touchstart 시점에 바로 알 수 있어서 직접 감지 - 한 손가락 드래그는
-    // 탭과 구분이 필요해서 카카오 자체 dragstart 이벤트(진짜 드래그일 때만 발생)에 맡김
-    function handleContainerTouchStart(e: TouchEvent) {
-        if (!isHeadingActive) return;
-        activeTouchCount = e.touches.length;
-        if (activeTouchCount >= 2) enterGestureMode();
-        window.addEventListener('touchmove', handleWindowTouchTrack, { passive: true });
-        window.addEventListener('touchend', handleWindowTouchTrack);
-        window.addEventListener('touchcancel', handleWindowTouchTrack);
-    }
-    function handleWindowTouchTrack(e: TouchEvent) {
-        activeTouchCount = e.touches.length;
-        if (activeTouchCount > 0) return;
-        exitGestureMode();
-        fetchAndDrawPolygons();
-        window.removeEventListener('touchmove', handleWindowTouchTrack);
-        window.removeEventListener('touchend', handleWindowTouchTrack);
-        window.removeEventListener('touchcancel', handleWindowTouchTrack);
-    }
-
-    // 데스크탑 휠 줌 - 휠 이벤트가 멈추고 일정 시간 지나면 제스처 종료로 간주
-    let wheelIdleTimer: ReturnType<typeof setTimeout> | null = null;
-    let zoomIdleTimer: ReturnType<typeof setTimeout> | null = null;
-    function handleContainerWheel() {
-        if (!isHeadingActive) return;
-        enterGestureMode();
-        if (wheelIdleTimer) clearTimeout(wheelIdleTimer);
-        wheelIdleTimer = setTimeout(() => {
-            wheelIdleTimer = null;
-            exitGestureMode();
-            fetchAndDrawPolygons();
-        }, 400);
+        if (interactionUnlockTimer) clearTimeout(interactionUnlockTimer);
+        interactionUnlockTimer = setTimeout(() => {
+            interactionUnlockTimer = null;
+            setMapInteractionEnabled(true);
+        }, 300);
     }
 
     function initializeMap() {
@@ -546,33 +497,27 @@
             };
             map = new kakao.maps.Map(mapContainer, mapOption);
             ps = new kakao.maps.services.Places();
+            setMapInteractionEnabled(headingMode !== 'heading-up');
 
             fetchAndDrawPolygons();
 
-            mapContainer.addEventListener('touchstart', handleContainerTouchStart, { passive: true });
-            mapContainer.addEventListener('wheel', handleContainerWheel, { passive: true });
+            mapContainer.addEventListener('pointerdown', switchToNorthUpForInteraction, { passive: true });
+            mapContainer.addEventListener('wheel', switchToNorthUpForInteraction, { passive: true });
 
             kakao.maps.event.addListener(map, 'dragstart', () => {
                 // 우리 코드가 panTo()로 지도를 움직인 것이면(현재위치 추적 중 계속 발생) 무시
                 if (isProgrammaticPan) return;
-                enterGestureMode();
+                if (isHeadingActive && isFollowing) pauseFollowing();
             });
             kakao.maps.event.addListener(map, 'dragend', () => {
-                // 핀치 도중에도 카카오가 dragend를 스퓨리어스하게 발생시킬 수 있어서, 손가락이
-                // 아직 남아있으면(활성 터치 추적값 기준) 무시 - 실제 종료는 touchend 쪽에서 처리함
-                if (activeTouchCount > 0) return;
-                exitGestureMode();
                 fetchAndDrawPolygons();
             });
             kakao.maps.event.addListener(map, 'zoom_changed', () => {
-                if (zoomIdleTimer) clearTimeout(zoomIdleTimer);
-                zoomIdleTimer = setTimeout(() => {
-                    zoomIdleTimer = null;
-                    if (activeTouchCount === 0) exitGestureMode();
-                }, 300);
                 fetchAndDrawPolygons();
             });
-            kakao.maps.event.addListener(map, 'zoom_start', enterGestureMode);
+            kakao.maps.event.addListener(map, 'zoom_start', () => {
+                if (isHeadingActive && isFollowing) pauseFollowing();
+            });
             kakao.maps.event.addListener(map, 'click', hidePolygonInfo);
         } else {
             console.error("카카오맵 API 스크립트가 아직 로드되지 않았습니다.");
@@ -956,13 +901,10 @@
             stopHeading();
             if (mapResizeObserver) mapResizeObserver.disconnect();
             if (mapContainer) {
-                mapContainer.removeEventListener('touchstart', handleContainerTouchStart);
-                mapContainer.removeEventListener('wheel', handleContainerWheel);
+                mapContainer.removeEventListener('pointerdown', switchToNorthUpForInteraction);
+                mapContainer.removeEventListener('wheel', switchToNorthUpForInteraction);
             }
-            window.removeEventListener('touchmove', handleWindowTouchTrack);
-            window.removeEventListener('touchend', handleWindowTouchTrack);
-            window.removeEventListener('touchcancel', handleWindowTouchTrack);
-            if (wheelIdleTimer) clearTimeout(wheelIdleTimer);
+            if (interactionUnlockTimer) clearTimeout(interactionUnlockTimer);
         };
     });
 
