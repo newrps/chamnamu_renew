@@ -614,8 +614,7 @@
                 transform:translateX({legendHidden ? '-150%' : '0'});
                 opacity:{legendHidden ? 0 : 1};
                 pointer-events:{legendHidden ? 'none' : 'auto'};">
-        <span style="position:absolute;right:6px;top:50%;transform:translateY(-50%);
-                      color:rgba(255,255,255,0.4);font-size:13px;line-height:1;">|</span>
+        <span class="legend-swipe-handle"></span>
         {#each speciesLegendPrimary as item}
         <div style="display:flex;align-items:center;gap:6px;white-space:nowrap;">
             <span style="width:10px;height:10px;border-radius:2px;background:{item.color};flex-shrink:0;"></span>
@@ -653,5 +652,22 @@
     @keyframes spin {
         from { transform: rotate(0deg); }
         to   { transform: rotate(360deg); }
+    }
+
+    .legend-swipe-handle {
+        position: absolute;
+        right: 6px;
+        top: 50%;
+        width: 4px;
+        height: 36px;
+        border-radius: 2px;
+        background: #4dabf7;
+        transform: translateY(-50%);
+        animation: legend-handle-nudge 2.2s ease-in-out infinite;
+    }
+
+    @keyframes legend-handle-nudge {
+        0%, 20%, 100% { transform: translateY(-50%) translateX(0); opacity: 0.6; }
+        10% { transform: translateY(-50%) translateX(-5px); opacity: 1; }
     }
 </style>
