@@ -197,6 +197,7 @@
     }
 
     function legendSwipeStart(e: TouchEvent | MouseEvent) {
+        if (e instanceof TouchEvent && e.touches.length !== 1) return;
         legendSwipeStartX = e instanceof TouchEvent ? e.touches[0].clientX : (e as MouseEvent).clientX;
         legendSwiping = true;
         document.addEventListener('touchmove', legendSwipeMove, { passive: true });
@@ -207,6 +208,7 @@
 
     function legendSwipeMove(e: TouchEvent | MouseEvent) {
         if (!legendSwiping) return;
+        if (e instanceof TouchEvent && e.touches.length !== 1) return;
         const x = e instanceof TouchEvent ? e.touches[0].clientX : (e as MouseEvent).clientX;
         const deltaX = x - legendSwipeStartX;
         if (deltaX < -40 && !legendHidden) {
@@ -220,6 +222,46 @@
         legendSwiping = false;
         document.removeEventListener('touchmove', legendSwipeMove);
         document.removeEventListener('mousemove', legendSwipeMove);
+    }
+
+    function blockOverviewTouch(e: TouchEvent) {
+        e.stopPropagation();
+        if (e.touches.length > 1 && e.cancelable) e.preventDefault();
+    }
+
+    function blockOverviewWheel(e: WheelEvent) {
+        e.stopPropagation();
+        if (e.cancelable) e.preventDefault();
+    }
+
+    function legendTouchStart(e: TouchEvent) {
+        e.stopPropagation();
+        if (e.touches.length > 1) {
+            if (e.cancelable) e.preventDefault();
+            legendSwipeEnd();
+            return;
+        }
+        legendSwipeStart(e);
+    }
+
+    function legendTouchMove(e: TouchEvent) {
+        e.stopPropagation();
+        if (e.touches.length > 1) {
+            if (e.cancelable) e.preventDefault();
+            legendSwipeEnd();
+            return;
+        }
+        legendSwipeMove(e);
+    }
+
+    function legendTouchEnd(e: TouchEvent) {
+        e.stopPropagation();
+        legendSwipeEnd();
+    }
+
+    function blockLegendWheel(e: WheelEvent) {
+        e.stopPropagation();
+        if (e.ctrlKey && e.cancelable) e.preventDefault();
     }
 
     let polygonInfoOverlay: any = null;
@@ -1318,7 +1360,16 @@
     {/if}
 
     {#if controlsReady && !overviewHidden}
-        <div class="overview-map {overviewExpanded ? 'expanded' : ''}">
+        <div
+            class="overview-map {overviewExpanded ? 'expanded' : ''}"
+            on:touchstart|nonpassive={blockOverviewTouch}
+            on:touchmove|nonpassive={blockOverviewTouch}
+            on:touchend|stopPropagation
+            on:touchcancel|stopPropagation
+            on:mousedown|stopPropagation
+            on:wheel|nonpassive={blockOverviewWheel}
+            on:dblclick|preventDefault|stopPropagation
+        >
             <button
                 class="overview-map-canvas"
                 on:click={() => overviewExpanded = !overviewExpanded}
@@ -1372,6 +1423,10 @@
     {:else if controlsReady && overviewHidden}
         <button
             class="overview-map-reopen"
+            on:touchstart|nonpassive={blockOverviewTouch}
+            on:touchmove|nonpassive={blockOverviewTouch}
+            on:wheel|nonpassive={blockOverviewWheel}
+            on:dblclick|preventDefault|stopPropagation
             on:click={() => setOverviewHidden(false)}
             aria-label="대한민국 미니맵 보이기"
             title="미니맵 보이기"
@@ -1385,8 +1440,12 @@
     <div
         role="group"
         aria-label="수종 범례"
-        on:touchstart={legendSwipeStart}
-        on:mousedown={legendSwipeStart}
+        on:touchstart|nonpassive={legendTouchStart}
+        on:touchmove|nonpassive={legendTouchMove}
+        on:touchend={legendTouchEnd}
+        on:touchcancel={legendTouchEnd}
+        on:mousedown|stopPropagation={legendSwipeStart}
+        on:wheel|nonpassive={blockLegendWheel}
         style="--legend-available-height:calc(100vh - {legendBottom}px - env(safe-area-inset-bottom, 0px) - 28px);
                 --legend-available-height:calc(100dvh - {legendBottom}px - env(safe-area-inset-bottom, 0px) - 28px);
                 position:fixed;bottom:calc({legendBottom}px + env(safe-area-inset-bottom, 0px));left:16px;z-index:150;
@@ -1451,8 +1510,12 @@
 
     {#if controlsReady && legendHidden}
     <button
-        on:touchstart={legendSwipeStart}
-        on:mousedown={legendSwipeStart}
+        on:touchstart|nonpassive={legendTouchStart}
+        on:touchmove|nonpassive={legendTouchMove}
+        on:touchend={legendTouchEnd}
+        on:touchcancel={legendTouchEnd}
+        on:mousedown|stopPropagation={legendSwipeStart}
+        on:wheel|nonpassive={blockLegendWheel}
         on:click={() => setLegendHidden(false)}
         aria-label="왼쪽 메뉴 보이기"
         title="왼쪽 메뉴 보이기"
@@ -1501,6 +1564,7 @@
         background: #eaf5ff;
         box-shadow: 0 3px 12px rgba(0, 0, 0, 0.24);
         overflow: hidden;
+        touch-action: none;
         transition: width 0.2s ease, height 0.2s ease, opacity 0.2s ease;
     }
     .overview-map.expanded {
@@ -1555,6 +1619,7 @@
         background: rgba(25, 45, 58, 0.72);
         color: white;
         box-shadow: 2px 2px 9px rgba(0, 0, 0, 0.2);
+        touch-action: none;
         cursor: pointer;
     }
     .overview-map-reopen svg {
