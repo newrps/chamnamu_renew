@@ -146,7 +146,7 @@
     let rafId: number | null = null;
     let interactionUnlockTimer: ReturnType<typeof setTimeout> | null = null;
     let interactionShieldActive = false;
-    const NORTH_UP_INTERACTION_DELAY_MS = 2000;
+    const activeShieldPointers = new Set<number>();
 
     // 뷰포트 대각선 길이의 정사각형 지도를 렌더링하면 어떤 각도로 돌려도 모서리가 비지 않는다.
     // 기존 CSS scale 보정을 없애 헤딩업 -> 북쪽 고정 전환 시 발생하던 확대/축소 튐도 제거한다.
@@ -450,6 +450,7 @@
             clearTimeout(interactionUnlockTimer);
             interactionUnlockTimer = null;
         }
+        activeShieldPointers.clear();
         interactionShieldActive = false;
         setMapInteractionEnabled(true);
         absoluteOrientationReceived = false;
@@ -480,25 +481,45 @@
         updateHeadingMarkerAppearance();
         applyMapRotation(currentHeading);
 
-        if (interactionUnlockTimer) clearTimeout(interactionUnlockTimer);
-        interactionUnlockTimer = setTimeout(() => {
-            interactionUnlockTimer = null;
-            setMapInteractionEnabled(true);
-            interactionShieldActive = false;
-        }, NORTH_UP_INTERACTION_DELAY_MS);
+    }
+
+    function unlockMapInteraction() {
+        if (activeShieldPointers.size > 0 || headingMode === 'heading-up') return;
+        setMapInteractionEnabled(true);
+        interactionShieldActive = false;
     }
 
     function handleInteractionShieldPointerDown(event: PointerEvent) {
         event.preventDefault();
         event.stopPropagation();
+        activeShieldPointers.add(event.pointerId);
         (event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId);
         switchToNorthUpForInteraction();
+    }
+
+    function handleInteractionShieldPointerEnd(event: PointerEvent) {
+        event.preventDefault();
+        event.stopPropagation();
+        activeShieldPointers.delete(event.pointerId);
+        const shield = event.currentTarget as HTMLElement;
+        if (shield.hasPointerCapture?.(event.pointerId)) {
+            shield.releasePointerCapture(event.pointerId);
+        }
+        if (activeShieldPointers.size === 0) {
+            // 현재 pointerup/cancel 흐름이 완전히 끝난 다음 프레임부터 새 제스처를 허용한다.
+            requestAnimationFrame(unlockMapInteraction);
+        }
     }
 
     function handleInteractionShieldWheel(event: WheelEvent) {
         event.preventDefault();
         event.stopPropagation();
         switchToNorthUpForInteraction();
+        if (interactionUnlockTimer) clearTimeout(interactionUnlockTimer);
+        interactionUnlockTimer = setTimeout(() => {
+            interactionUnlockTimer = null;
+            unlockMapInteraction();
+        }, 180);
     }
 
     function initializeMap() {
@@ -925,6 +946,8 @@
     <div
         role="presentation"
         on:pointerdown={handleInteractionShieldPointerDown}
+        on:pointerup={handleInteractionShieldPointerEnd}
+        on:pointercancel={handleInteractionShieldPointerEnd}
         on:wheel={handleInteractionShieldWheel}
         style="position:absolute;inset:0;z-index:4;background:transparent;touch-action:none;"
     ></div>
