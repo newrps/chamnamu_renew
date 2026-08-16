@@ -130,6 +130,7 @@
 
     let currentHeading = 0;
     let continuousHeading = 0;
+    let appliedRotationAngle = 0; // mapContainer에 실제로 적용된 CSS 회전각 (드래그 보정 계산에 사용)
     let rafId: number | null = null;
     let currentLat = 0;
     let currentLng = 0;
@@ -165,10 +166,7 @@
         if (diff < -180) diff += 360;
         continuousHeading += diff;
 
-        // 일시정지(사용자가 드래그로 화면을 옮긴) 상태면 각도 계산만 갱신하고 실제 회전은 적용 안 함
-        // (재개 시 최신 heading으로 바로 스냅되도록)
-        if (!isFollowing) return;
-
+        // 재중심(팔로잉) 여부와 상관없이 회전 자체는 항상 실시간으로 반영 - 화면을 옮겨서 보고 있어도 방향은 계속 맞아야 함
         if (rafId !== null) cancelAnimationFrame(rafId);
         const angle = continuousHeading;
         rafId = requestAnimationFrame(() => {
@@ -181,6 +179,7 @@
                 mapContainer.style.transform = `rotate(${angle}deg) scale(1.5)`;
                 mapContainer.style.transformOrigin = '50% 50%';
             }
+            appliedRotationAngle = angle;
             rafId = null;
         });
     }
@@ -286,6 +285,8 @@
 
         isHeadingActive = true;
         isFollowing = true;
+        // 지도가 CSS로 회전되어 있으면 카카오 기본 드래그(회전 반영 안 됨)가 어긋나서 직접 드래그를 처리함
+        if (map) (map as any).setDraggable(false);
         startOrientationTracking();
         locating.set(true);
 
@@ -385,15 +386,109 @@
 
         currentHeading = 0;
         continuousHeading = 0;
+        appliedRotationAngle = 0;
         absoluteOrientationReceived = false;
         if (mapContainer) {
             mapContainer.style.transition = '';
             mapContainer.style.transform = '';
         }
+        if (map) (map as any).setDraggable(true);
         lastPolygonUpdate = 0;
         lastCenter = null;
 
         dispatch('headingstop');
+    }
+
+    // 지도가 CSS로 회전된 상태에서는 카카오 기본 드래그(회전을 모르고 항상 북쪽 기준으로 이동)가
+    // 화면에 보이는 방향과 어긋나므로, 추적 중엔 기본 드래그를 끄고(setDraggable(false)) 직접 처리함
+    let customDragActive = false;
+    let customDragLastX = 0;
+    let customDragLastY = 0;
+
+    function panByRotated(dx: number, dy: number) {
+        isProgrammaticPan = true;
+        (map as any).panBy(dx, dy);
+        if (programmaticPanTimer) clearTimeout(programmaticPanTimer);
+        programmaticPanTimer = setTimeout(() => {
+            isProgrammaticPan = false;
+        }, 600);
+    }
+
+    // 화면(회전된 상태)에서 느낀 이동량을, 지도 내부의 회전 안 된 좌표계 기준 이동량으로 역변환
+    function rotatedPanDelta(screenDx: number, screenDy: number) {
+        const rad = appliedRotationAngle * Math.PI / 180;
+        const cos = Math.cos(rad);
+        const sin = Math.sin(rad);
+        return {
+            x: screenDx * cos + screenDy * sin,
+            y: -screenDx * sin + screenDy * cos
+        };
+    }
+
+    function customDragStart(clientX: number, clientY: number) {
+        if (!isHeadingActive) return;
+        customDragActive = true;
+        customDragLastX = clientX;
+        customDragLastY = clientY;
+        if (isFollowing) pauseFollowing();
+    }
+
+    function customDragMove(clientX: number, clientY: number) {
+        if (!customDragActive) return;
+        const screenDx = clientX - customDragLastX;
+        const screenDy = clientY - customDragLastY;
+        customDragLastX = clientX;
+        customDragLastY = clientY;
+        const delta = rotatedPanDelta(screenDx, screenDy);
+        // 드래그 방향으로 화면 내용이 손가락을 따라오도록 부호 반전
+        panByRotated(-delta.x, -delta.y);
+    }
+
+    function customDragEnd() {
+        if (!customDragActive) return;
+        customDragActive = false;
+        fetchAndDrawPolygons();
+    }
+
+    function handleContainerMouseDown(e: MouseEvent) {
+        if (!isHeadingActive) return;
+        customDragStart(e.clientX, e.clientY);
+        window.addEventListener('mousemove', handleWindowMouseMove);
+        window.addEventListener('mouseup', handleWindowMouseUp, { once: true });
+    }
+    function handleWindowMouseMove(e: MouseEvent) {
+        customDragMove(e.clientX, e.clientY);
+    }
+    function handleWindowMouseUp() {
+        customDragEnd();
+        window.removeEventListener('mousemove', handleWindowMouseMove);
+    }
+
+    function handleContainerTouchStart(e: TouchEvent) {
+        if (!isHeadingActive || e.touches.length !== 1) return;
+        customDragStart(e.touches[0].clientX, e.touches[0].clientY);
+        window.addEventListener('touchmove', handleWindowTouchMove, { passive: false });
+        window.addEventListener('touchend', handleWindowTouchEnd);
+        window.addEventListener('touchcancel', handleWindowTouchEnd);
+    }
+    function handleWindowTouchMove(e: TouchEvent) {
+        if (!customDragActive) return;
+        if (e.touches.length !== 1) {
+            // 두 손가락(핀치줌)이 되면 드래그 취소 - 카카오 기본 줌 동작에 맡김
+            customDragActive = false;
+            window.removeEventListener('touchmove', handleWindowTouchMove);
+            window.removeEventListener('touchend', handleWindowTouchEnd);
+            window.removeEventListener('touchcancel', handleWindowTouchEnd);
+            return;
+        }
+        e.preventDefault();
+        customDragMove(e.touches[0].clientX, e.touches[0].clientY);
+    }
+    function handleWindowTouchEnd() {
+        customDragEnd();
+        window.removeEventListener('touchmove', handleWindowTouchMove);
+        window.removeEventListener('touchend', handleWindowTouchEnd);
+        window.removeEventListener('touchcancel', handleWindowTouchEnd);
     }
 
     function initializeMap() {
@@ -407,6 +502,9 @@
             ps = new kakao.maps.services.Places();
 
             fetchAndDrawPolygons();
+
+            mapContainer.addEventListener('mousedown', handleContainerMouseDown);
+            mapContainer.addEventListener('touchstart', handleContainerTouchStart, { passive: true });
 
             kakao.maps.event.addListener(map, 'dragend', fetchAndDrawPolygons);
             kakao.maps.event.addListener(map, 'dragstart', () => {
@@ -811,6 +909,14 @@
         return () => {
             stopHeading();
             if (mapResizeObserver) mapResizeObserver.disconnect();
+            if (mapContainer) {
+                mapContainer.removeEventListener('mousedown', handleContainerMouseDown);
+                mapContainer.removeEventListener('touchstart', handleContainerTouchStart);
+            }
+            window.removeEventListener('mousemove', handleWindowMouseMove);
+            window.removeEventListener('touchmove', handleWindowTouchMove);
+            window.removeEventListener('touchend', handleWindowTouchEnd);
+            window.removeEventListener('touchcancel', handleWindowTouchEnd);
         };
     });
 
