@@ -145,6 +145,7 @@
     let appliedRotationAngle = 0; // mapContainer에 실제로 적용된 CSS 회전각 (드래그 보정 계산에 사용)
     let rafId: number | null = null;
     let interactionUnlockTimer: ReturnType<typeof setTimeout> | null = null;
+    let interactionShieldActive = false;
     const NORTH_UP_INTERACTION_DELAY_MS = 2000;
 
     // 뷰포트 대각선 길이의 정사각형 지도를 렌더링하면 어떤 각도로 돌려도 모서리가 비지 않는다.
@@ -331,6 +332,7 @@
         headingMode = mode;
         isHeadingActive = true;
         isFollowing = true;
+        interactionShieldActive = mode === 'heading-up';
         setMapInteractionEnabled(mode !== 'heading-up');
         dispatch('headingmodechange', { mode: headingMode });
         startOrientationTracking();
@@ -403,6 +405,7 @@
     export function setHeadingMode(mode: ActiveHeadingMode) {
         if (!isHeadingActive) return;
         headingMode = mode;
+        interactionShieldActive = mode === 'heading-up';
         setMapInteractionEnabled(mode !== 'heading-up');
         dispatch('headingmodechange', { mode: headingMode });
         updateHeadingMarkerAppearance();
@@ -447,6 +450,7 @@
             clearTimeout(interactionUnlockTimer);
             interactionUnlockTimer = null;
         }
+        interactionShieldActive = false;
         setMapInteractionEnabled(true);
         absoluteOrientationReceived = false;
         if (mapContainer) {
@@ -480,7 +484,21 @@
         interactionUnlockTimer = setTimeout(() => {
             interactionUnlockTimer = null;
             setMapInteractionEnabled(true);
+            interactionShieldActive = false;
         }, NORTH_UP_INTERACTION_DELAY_MS);
+    }
+
+    function handleInteractionShieldPointerDown(event: PointerEvent) {
+        event.preventDefault();
+        event.stopPropagation();
+        (event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId);
+        switchToNorthUpForInteraction();
+    }
+
+    function handleInteractionShieldWheel(event: WheelEvent) {
+        event.preventDefault();
+        event.stopPropagation();
+        switchToNorthUpForInteraction();
     }
 
     function initializeMap() {
@@ -496,9 +514,6 @@
             setMapInteractionEnabled(headingMode !== 'heading-up');
 
             fetchAndDrawPolygons();
-
-            mapContainer.addEventListener('pointerdown', switchToNorthUpForInteraction, { passive: true });
-            mapContainer.addEventListener('wheel', switchToNorthUpForInteraction, { passive: true });
 
             kakao.maps.event.addListener(map, 'dragstart', () => {
                 // 우리 코드가 panTo()로 지도를 움직인 것이면(현재위치 추적 중 계속 발생) 무시
@@ -897,10 +912,6 @@
         return () => {
             stopHeading();
             if (mapResizeObserver) mapResizeObserver.disconnect();
-            if (mapContainer) {
-                mapContainer.removeEventListener('pointerdown', switchToNorthUpForInteraction);
-                mapContainer.removeEventListener('wheel', switchToNorthUpForInteraction);
-            }
             if (interactionUnlockTimer) clearTimeout(interactionUnlockTimer);
         };
     });
@@ -909,6 +920,15 @@
 
 <div bind:this={mapViewport} style="position:relative;width:100%;height:100vh;overflow:hidden;">
     <div bind:this={mapContainer} style="position:absolute;left:50%;top:50%;transform:rotate(0deg);"></div>
+
+    {#if interactionShieldActive}
+    <div
+        role="presentation"
+        on:pointerdown={handleInteractionShieldPointerDown}
+        on:wheel={handleInteractionShieldWheel}
+        style="position:absolute;inset:0;z-index:4;background:transparent;touch-action:none;"
+    ></div>
+    {/if}
 
     {#if $locating}
     <div style="position:absolute;bottom:80px;left:50%;transform:translateX(-50%);z-index:200;pointer-events:none;
