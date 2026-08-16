@@ -722,6 +722,7 @@
         display: flex;
         align-items: center;
         justify-content: center;
+        color: #35644a;
         transition: background 0.2s, transform 0.28s ease, opacity 0.2s ease;
     }
     .collecting-fab.left-controls-hidden {
@@ -731,6 +732,7 @@
     }
     .collecting-fab.active {
         background: #1b5e20;
+        color: white;
     }
 
     .compass-fab {
@@ -798,6 +800,7 @@
         align-items: center;
         justify-content: center;
         z-index: 5;
+        color: #4b5563;
         font-size: 22px;
         transition: all 0.3s ease;
         padding: 0;
@@ -809,7 +812,15 @@
 
     .satellite-fab.active {
         background: #1a73e8;
+        color: white;
         box-shadow: 0 2px 12px rgba(26,115,232,0.5);
+    }
+
+    .control-fab-icon {
+        width: 25px;
+        height: 25px;
+        display: block;
+        pointer-events: none;
     }
 
     .right-controls-layer {
@@ -1489,7 +1500,15 @@
             on:touchstart={(event) => handleControlSwipeStart(event, 'left')}
             on:click={() => showCollectingPanel = !showCollectingPanel}
             title="채집 예보"
-        >🪲</button>
+            aria-label="채집 예보"
+        >
+            <svg class="control-fab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M4 18c0-7.2 4.2-12 11-13 .1 6.9-3.8 11.2-11 13Z"/>
+                <path d="M4 18c2.8-3.6 5.5-6.1 9-8"/>
+                <circle cx="18" cy="6" r="2.25"/>
+                <path d="M18 1.5V1M18 11v-.5M22.5 6H23M13 6h.5M21.2 2.8l.4-.4M14.4 9.6l.4-.4M21.2 9.2l.4.4"/>
+            </svg>
+        </button>
 
         <div
             role="group"
@@ -1564,7 +1583,14 @@
             style="bottom: calc({showAdBanner ? 116 : 20}px + 56px + env(safe-area-inset-bottom, 0px));"
             on:click={() => mapComponent.toggleSatellite()}
             title={isSatellite ? '일반 지도로 보기' : '위성 지도로 보기'}
-        >🛰️</button>
+            aria-label={isSatellite ? '일반 지도로 보기' : '위성 지도로 보기'}
+        >
+            <svg class="control-fab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="m12 3-9 5 9 5 9-5-9-5Z"/>
+                <path d="m3 12 9 5 9-5"/>
+                <path d="m3 16 9 5 9-5"/>
+            </svg>
+        </button>
 
         <!-- 로드뷰(거리뷰) 토글 버튼 -->
         <button
@@ -1572,7 +1598,13 @@
             style="bottom: calc({showAdBanner ? 116 : 20}px + 112px + env(safe-area-inset-bottom, 0px));"
             on:click={() => mapComponent.toggleRoadview()}
             title={roadviewMode ? '로드뷰 끄기' : '로드뷰 켜기'}
-        >🚶</button>
+            aria-label={roadviewMode ? '로드뷰 끄기' : '로드뷰 켜기'}
+        >
+            <svg class="control-fab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M2.5 12s3.4-5.5 9.5-5.5 9.5 5.5 9.5 5.5-3.4 5.5-9.5 5.5S2.5 12 2.5 12Z"/>
+                <circle cx="12" cy="12" r="2.6"/>
+            </svg>
+        </button>
 
         {#if !rightControlsHidden}
             <button
