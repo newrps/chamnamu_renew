@@ -496,6 +496,13 @@
         fetchAndDrawPolygons();
     }
 
+    export let isSatellite = false;
+    export function toggleMapType() {
+        if (!map) return;
+        isSatellite = !isSatellite;
+        map.setMapTypeId(isSatellite ? kakao.maps.MapTypeId.HYBRID : kakao.maps.MapTypeId.ROADMAP);
+    }
+
     export function getAddressFromCoords(lat: number, lng: number): Promise<string> {
         return new Promise((resolve) => {
             const geocoder = new kakao.maps.services.Geocoder();

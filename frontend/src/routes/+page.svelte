@@ -14,6 +14,7 @@
 
     let isHeadingActive = false;
     let isGPSLocating = false; // GPS 정밀 위치 탐색 중
+    let isSatellite = false;
     let currentLocation = { lat: 0, lng: 0, heading: 0 };
 
     let showCollectingPanel = false;
@@ -662,6 +663,34 @@
         to   { transform: rotate(360deg); }
     }
 
+    .satellite-fab {
+        position: fixed;
+        right: 68px;
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        border: none;
+        background: white;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 5;
+        font-size: 22px;
+        transition: all 0.3s ease;
+        padding: 0;
+    }
+
+    .satellite-fab:hover {
+        box-shadow: 0 4px 12px rgba(0,0,0,0.35);
+    }
+
+    .satellite-fab.active {
+        background: #1a73e8;
+        box-shadow: 0 2px 12px rgba(26,115,232,0.5);
+    }
+
     .search-results-list {
         list-style: none;
         padding: 0;
@@ -1239,6 +1268,7 @@
     <div class="map-wrapper {showAdBanner ? 'with-ad' : ''}">
         <KakaoMap
             bind:this={mapComponent}
+            bind:isSatellite
             legendBottom={(showAdBanner ? 116 : 20) + 56}
             on:searchresults={onSearchResults}
             on:headingupdate={onHeadingUpdate}
@@ -1296,6 +1326,14 @@
                 <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-5.5-2.5l7.51-3.49L17.5 6.5 9.99 9.99 6.5 17.5zm5.5-6.6c.61 0 1.1.49 1.1 1.1s-.49 1.1-1.1 1.1-1.1-.49-1.1-1.1.49-1.1 1.1-1.1z"/>
             </svg>
         </button>
+
+        <!-- 위성지도 토글 버튼 -->
+        <button
+            class="satellite-fab {isSatellite ? 'active' : ''}"
+            style="bottom: calc({showAdBanner ? 116 : 20}px + env(safe-area-inset-bottom, 0px));"
+            on:click={() => mapComponent.toggleMapType()}
+            title={isSatellite ? '일반 지도로 보기' : '위성 지도로 보기'}
+        >🛰️</button>
 
         <!-- 채집 예보 패널 -->
         <CollectingForecast
