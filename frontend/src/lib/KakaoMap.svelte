@@ -107,6 +107,7 @@
     }
 
     let isHeadingActive = false;
+    let dragStopHeadingTimer: ReturnType<typeof setTimeout> | null = null;
     let watchId: number | null = null;
     let savedLocationMarkers: any[] = [];
     let locationOverlay: any = null;
@@ -370,9 +371,19 @@
 
             kakao.maps.event.addListener(map, 'dragend', fetchAndDrawPolygons);
             kakao.maps.event.addListener(map, 'dragstart', () => {
-                stopHeading();
+                // 모바일 핀치줌 제스처가 시작될 때도 dragstart가 같이 발생해서, 줌인지 실제 드래그인지
+                // 잠깐 기다렸다가 판단함 (그 사이 zoom_changed가 오면 줌으로 간주하고 취소)
+                if (dragStopHeadingTimer) clearTimeout(dragStopHeadingTimer);
+                dragStopHeadingTimer = setTimeout(() => {
+                    dragStopHeadingTimer = null;
+                    stopHeading();
+                }, 150);
             });
             kakao.maps.event.addListener(map, 'zoom_changed', () => {
+                if (dragStopHeadingTimer) {
+                    clearTimeout(dragStopHeadingTimer);
+                    dragStopHeadingTimer = null;
+                }
                 fetchAndDrawPolygons();
             });
             kakao.maps.event.addListener(map, 'click', hidePolygonInfo);
