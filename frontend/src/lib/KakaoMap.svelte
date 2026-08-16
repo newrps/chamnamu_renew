@@ -568,6 +568,11 @@
     }
 
     onMount(() => {
+        // PC(769px 이상)에서는 범례를 기본으로 펼쳐서 보여줌 (모바일은 접힌 상태 + 스와이프 힌트 유지)
+        if (window.matchMedia('(min-width: 769px)').matches) {
+            legendExpanded = true;
+        }
+
         const script = document.createElement('script');
         script.src = `//dapi.kakao.com/v2/maps/sdk.js?appkey=${VITE_KAKAO_MAP_API_KEY}&autoload=false&libraries=services`;
         script.async = true;
@@ -669,5 +674,13 @@
     @keyframes legend-handle-nudge {
         0%, 20%, 100% { transform: translateY(-50%) translateX(0); opacity: 0.6; }
         10% { transform: translateY(-50%) translateX(-5px); opacity: 1; }
+    }
+
+    /* PC에서는 스와이프 안내 애니메이션이 불필요하니 정지 */
+    @media (min-width: 769px) {
+        .legend-swipe-handle {
+            animation: none;
+            opacity: 0.4;
+        }
     }
 </style>
