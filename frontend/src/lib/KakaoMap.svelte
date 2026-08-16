@@ -457,12 +457,16 @@
                         });
                         polygon.setMap(map);
                         kakao.maps.event.addListener(polygon, 'mouseover', (e: any) => {
+                            polygon.setOptions({ fillOpacity: 0.8, strokeWeight: 2 });
                             showPolygonInfo(item.species, e.latLng);
                         });
                         kakao.maps.event.addListener(polygon, 'mousemove', (e: any) => {
                             if (polygonInfoOverlay) polygonInfoOverlay.setPosition(e.latLng);
                         });
-                        kakao.maps.event.addListener(polygon, 'mouseout', hidePolygonInfo);
+                        kakao.maps.event.addListener(polygon, 'mouseout', () => {
+                            polygon.setOptions({ fillOpacity: 0.4, strokeWeight: 1 });
+                            hidePolygonInfo();
+                        });
                         kakao.maps.event.addListener(polygon, 'click', (e: any) => {
                             kakao.maps.event.preventMap();
                             showPolygonInfo(item.species, e.latLng);
@@ -608,7 +612,30 @@
         });
     }
 
+    let lastRoadviewMarkerEl: HTMLDivElement | null = null;
+    let lastRoadviewMarkerOverlay: any;
+
     export function closeRoadview() {
+        if (roadviewInstance) {
+            const pos = roadviewInstance.getPosition();
+            const vp = roadviewInstance.getViewpoint();
+            if (pos) {
+                if (!lastRoadviewMarkerEl) {
+                    lastRoadviewMarkerEl = document.createElement('div');
+                    lastRoadviewMarkerEl.style.cssText = 'pointer-events:none;transform-origin:50% 50%;';
+                    lastRoadviewMarkerEl.innerHTML = `<svg width="34" height="34" viewBox="0 0 34 34">
+                        <polygon points="17,3 6,30 17,23 28,30" fill="rgba(255,80,0,0.9)" stroke="white" stroke-width="1.5" stroke-linejoin="round"/>
+                    </svg>`;
+                    lastRoadviewMarkerOverlay = new kakao.maps.CustomOverlay({
+                        position: pos, content: lastRoadviewMarkerEl, xAnchor: 0.5, yAnchor: 0.5, zIndex: 50
+                    });
+                }
+                lastRoadviewMarkerEl.style.transform = `rotate(${vp.pan}deg)`;
+                lastRoadviewMarkerOverlay.setPosition(pos);
+                lastRoadviewMarkerOverlay.setMap(map);
+                map.setCenter(pos);
+            }
+        }
         roadviewOpen = false;
     }
 
