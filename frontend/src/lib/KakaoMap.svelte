@@ -20,18 +20,30 @@
     let drawnPolygons = new Map<string, kakao.maps.Polygon[]>();
     let polygonsFetchedOnce = false;
 
-    // 참나무 수종별 표시 색상 (카카오맵 배경 위에서 서로 구분되도록 고른 팔레트)
+    // 참나무류: 채집지도의 핵심이라 선명한 색으로 표시
+    const OAK_SPECIES = ['신갈나무', '굴참나무', '상수리나무', '기타참나무류'];
+    // 그 외 사슴벌레 관련 수종: 참나무보다 옅은 색으로 구분만 되게 표시
+    const OTHER_SPECIES = ['밤나무', '자작나무', '포플러', '오리나무', '벚나무', '물푸레나무'];
+
     const SPECIES_COLORS: Record<string, { fill: string; stroke: string }> = {
         '신갈나무':     { fill: '#2a78d6', stroke: '#1c5aa8' },
         '굴참나무':     { fill: '#eb6834', stroke: '#c94f22' },
         '상수리나무':   { fill: '#1baf7a', stroke: '#148a5e' },
-        '기타참나무류': { fill: '#898781', stroke: '#6b6963' }
+        '기타참나무류': { fill: '#eda100', stroke: '#c98500' },
+        '밤나무':       { fill: '#8d6e3d', stroke: '#6d5430' },
+        '자작나무':     { fill: '#b5a480', stroke: '#8f8163' },
+        '포플러':       { fill: '#6f8f6a', stroke: '#546e50' },
+        '오리나무':     { fill: '#7c6a52', stroke: '#5f5140' },
+        '벚나무':       { fill: '#a9788a', stroke: '#835d6b' },
+        '물푸레나무':   { fill: '#78889a', stroke: '#5c6878' }
     };
     const DEFAULT_SPECIES_COLOR = { fill: '#898781', stroke: '#6b6963' };
     function colorForSpecies(species: string | null | undefined) {
         return (species && SPECIES_COLORS[species]) || DEFAULT_SPECIES_COLOR;
     }
-    export const speciesLegend = Object.entries(SPECIES_COLORS).map(([name, color]) => ({ name, color: color.fill }));
+    export const speciesLegendPrimary = OAK_SPECIES.map(name => ({ name, color: SPECIES_COLORS[name].fill }));
+    export const speciesLegendMore = OTHER_SPECIES.map(name => ({ name, color: SPECIES_COLORS[name].fill }));
+    let legendExpanded = false;
 
     let polygonInfoOverlay: any = null;
     function showPolygonInfo(species: string | null | undefined, position: any) {
@@ -551,13 +563,26 @@
     <div style="position:fixed;bottom:calc({legendBottom}px + env(safe-area-inset-bottom, 0px));left:16px;z-index:150;
                 display:flex;flex-direction:column;gap:4px;
                 background:rgba(0,0,0,0.65);color:white;
-                padding:8px 12px;border-radius:10px;font-size:12px;">
-        {#each speciesLegend as item}
+                padding:8px 12px;border-radius:10px;font-size:12px;max-width:150px;">
+        {#each speciesLegendPrimary as item}
         <div style="display:flex;align-items:center;gap:6px;white-space:nowrap;">
             <span style="width:10px;height:10px;border-radius:2px;background:{item.color};flex-shrink:0;"></span>
             <span>{item.name}</span>
         </div>
         {/each}
+        {#if legendExpanded}
+        {#each speciesLegendMore as item}
+        <div style="display:flex;align-items:center;gap:6px;white-space:nowrap;opacity:0.85;">
+            <span style="width:10px;height:10px;border-radius:2px;background:{item.color};flex-shrink:0;"></span>
+            <span>{item.name}</span>
+        </div>
+        {/each}
+        {/if}
+        <button
+            on:click={() => legendExpanded = !legendExpanded}
+            style="margin-top:2px;background:none;border:none;color:rgba(255,255,255,0.75);
+                   font-size:12px;padding:0;cursor:pointer;text-align:left;"
+        >{legendExpanded ? '접기 ▲' : '· · · 더보기'}</button>
     </div>
 </div>
 
