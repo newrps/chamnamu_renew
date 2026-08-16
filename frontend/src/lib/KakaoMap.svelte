@@ -184,7 +184,7 @@
         if (!locationOverlay) {
             const el = document.createElement('div');
             el.style.cssText = 'pointer-events:none;transform-origin:50% 75%;';
-            el.innerHTML = `<svg width="56" height="72" viewBox="0 0 56 72" xmlns="http://www.w3.org/2000/svg">
+            el.innerHTML = `<svg width="36" height="47" viewBox="0 0 56 72" xmlns="http://www.w3.org/2000/svg">
                 <polygon points="28,46 2,2 54,2" fill="rgba(66,133,244,0.35)" stroke="rgba(66,133,244,0.5)" stroke-width="1" stroke-linejoin="round"/>
                 <circle cx="28" cy="54" r="15" fill="white" style="filter:drop-shadow(0 2px 6px rgba(0,0,0,0.35))"/>
                 <circle cx="28" cy="54" r="11" fill="#4285f4"/>
