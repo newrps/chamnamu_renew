@@ -131,6 +131,14 @@
     let locationOverlay: any = null;
     let overlayElement: HTMLDivElement | null = null;
 
+    function updateHeadingMarkerAppearance() {
+        if (!overlayElement) return;
+        const cone = overlayElement.querySelector<SVGElement>('[data-heading-cone]');
+        const arrow = overlayElement.querySelector<SVGElement>('[data-heading-arrow]');
+        if (cone) cone.style.display = headingMode === 'heading-up' ? '' : 'none';
+        if (arrow) arrow.style.display = headingMode === 'north-up' ? '' : 'none';
+    }
+
     let appliedRotationScale = 1; // mapContainer에 실제로 적용된 확대 배율
     // 드래그/핀치/휠 제스처 도중엔 지도를 잠깐 회전 안 된 상태로 되돌려서 카카오 네이티브 드래그/줌에 맡김 -
     // 회전된 채로 커스텀 좌표변환을 직접 계산하면 방향/속도가 계속 미묘하게 어긋나는 문제가 있었음
@@ -237,12 +245,14 @@
             const el = document.createElement('div');
             el.style.cssText = 'pointer-events:none;transform-origin:50% 75%;';
             el.innerHTML = `<svg width="36" height="47" viewBox="0 0 56 72" xmlns="http://www.w3.org/2000/svg">
-                <polygon points="28,46 2,2 54,2" fill="rgba(66,133,244,0.35)" stroke="rgba(66,133,244,0.5)" stroke-width="1" stroke-linejoin="round"/>
+                <polygon data-heading-cone points="28,46 2,2 54,2" fill="rgba(66,133,244,0.35)" stroke="rgba(66,133,244,0.5)" stroke-width="1" stroke-linejoin="round"/>
+                <polygon data-heading-arrow points="28,23 18,45 38,45" fill="#4285f4" stroke="white" stroke-width="2" stroke-linejoin="round"/>
                 <circle cx="28" cy="54" r="15" fill="white" style="filter:drop-shadow(0 2px 6px rgba(0,0,0,0.35))"/>
                 <circle cx="28" cy="54" r="11" fill="#4285f4"/>
                 <circle cx="28" cy="54" r="4" fill="white"/>
             </svg>`;
             overlayElement = el;
+            updateHeadingMarkerAppearance();
             if (continuousHeading !== 0) {
                 el.style.transform = `rotate(${continuousHeading}deg)`;
             }
@@ -400,6 +410,7 @@
         headingMode = mode;
         gestureActive = false;
         dispatch('headingmodechange', { mode: headingMode });
+        updateHeadingMarkerAppearance();
         applyMapRotation(currentHeading);
     }
 
