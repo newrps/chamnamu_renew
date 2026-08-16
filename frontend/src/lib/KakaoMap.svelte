@@ -26,13 +26,15 @@
     const OTHER_SPECIES = ['밤나무', '자작나무', '포플러', '오리나무', '벚나무', '물푸레나무'];
 
     const SPECIES_COLORS: Record<string, { fill: string; stroke: string }> = {
-        '신갈나무':     { fill: '#2a78d6', stroke: '#1c5aa8' },
-        '굴참나무':     { fill: '#eb6834', stroke: '#c94f22' },
-        '상수리나무':   { fill: '#1baf7a', stroke: '#148a5e' },
-        '기타참나무류': { fill: '#eda100', stroke: '#c98500' },
+        // 참나무류: 초록 계열로 통일 (명도/색상만 살짝 다르게 구분)
+        '신갈나무':     { fill: '#2e7d32', stroke: '#1e5522' },
+        '굴참나무':     { fill: '#66bb6a', stroke: '#4c9350' },
+        '상수리나무':   { fill: '#1b5e20', stroke: '#123d15' },
+        '기타참나무류': { fill: '#9ccc65', stroke: '#7aa048' },
+        // 그 외 수종: 초록과 겹치지 않는 별도 색 계열
         '밤나무':       { fill: '#8d6e3d', stroke: '#6d5430' },
         '자작나무':     { fill: '#b5a480', stroke: '#8f8163' },
-        '포플러':       { fill: '#6f8f6a', stroke: '#546e50' },
+        '포플러':       { fill: '#c68a4a', stroke: '#9c6c38' },
         '오리나무':     { fill: '#7c6a52', stroke: '#5f5140' },
         '벚나무':       { fill: '#a9788a', stroke: '#835d6b' },
         '물푸레나무':   { fill: '#78889a', stroke: '#5c6878' }
@@ -407,7 +409,7 @@
                     if (path.length > 0) {
                         const polygon = new kakao.maps.Polygon({
                             path,
-                            strokeWeight: 3,
+                            strokeWeight: 1,
                             strokeColor: color.stroke,
                             strokeOpacity: 0.9,
                             fillColor: color.fill,
