@@ -128,6 +128,7 @@
     let locationOverlay: any = null;
     let overlayElement: HTMLDivElement | null = null;
 
+    const MAP_ROTATION_SCALE = 1.5; // 회전 중 모서리 빈 공간이 안 보이게 지도 컨테이너를 확대하는 배율
     let currentHeading = 0;
     let continuousHeading = 0;
     let appliedRotationAngle = 0; // mapContainer에 실제로 적용된 CSS 회전각 (드래그 보정 계산에 사용)
@@ -176,7 +177,7 @@
             }
             if (mapContainer) {
                 mapContainer.style.transition = 'transform 0.2s linear';
-                mapContainer.style.transform = `rotate(${angle}deg) scale(1.5)`;
+                mapContainer.style.transform = `rotate(${angle}deg) scale(${MAP_ROTATION_SCALE})`;
                 mapContainer.style.transformOrigin = '50% 50%';
             }
             appliedRotationAngle = angle;
@@ -405,9 +406,17 @@
     let customDragLastX = 0;
     let customDragLastY = 0;
 
+    // panBy는 부드럽게(애니메이션으로) 움직이는 함수라 연속으로 자주 호출하면
+    // 매번 애니메이션이 도중에 끊기면서 실제로는 아주 조금만 움직인 것처럼 보임 -
+    // 화면 좌표 <-> 지도 좌표 변환(Projection)으로 직접 setCenter해서 즉시 이동시킴
     function panByRotated(dx: number, dy: number) {
+        if (!map) return;
         isProgrammaticPan = true;
-        (map as any).panBy(dx, dy);
+        const proj = (map as any).getProjection();
+        const centerPoint = proj.containerPointFromCoords(map.getCenter());
+        const newPoint = new kakao.maps.Point(centerPoint.x + dx, centerPoint.y + dy);
+        const newCenter = proj.coordsFromContainerPoint(newPoint);
+        map.setCenter(newCenter);
         if (programmaticPanTimer) clearTimeout(programmaticPanTimer);
         programmaticPanTimer = setTimeout(() => {
             isProgrammaticPan = false;
@@ -440,8 +449,11 @@
         customDragLastX = clientX;
         customDragLastY = clientY;
         const delta = rotatedPanDelta(screenDx, screenDy);
+        // 지도 컨테이너가 scale(1.5)로 확대돼 있어서, 화면상 이동량을 지도 내부 픽셀 단위로 환산
+        const internalDx = delta.x / MAP_ROTATION_SCALE;
+        const internalDy = delta.y / MAP_ROTATION_SCALE;
         // 드래그 방향으로 화면 내용이 손가락을 따라오도록 부호 반전
-        panByRotated(-delta.x, -delta.y);
+        panByRotated(-internalDx, -internalDy);
     }
 
     function customDragEnd() {
