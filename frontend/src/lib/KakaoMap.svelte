@@ -608,12 +608,14 @@
         style="position:fixed;bottom:calc({legendBottom}px + env(safe-area-inset-bottom, 0px));left:16px;z-index:150;
                 display:flex;flex-direction:column;gap:4px;
                 background:rgba(0,0,0,0.65);color:white;
-                padding:8px 12px;border-radius:10px;font-size:12px;max-width:150px;
+                padding:8px 20px 8px 12px;border-radius:10px;font-size:12px;max-width:150px;
                 touch-action:pan-y;user-select:none;cursor:grab;
                 transition:transform 0.25s ease, opacity 0.25s ease;
                 transform:translateX({legendHidden ? '-150%' : '0'});
                 opacity:{legendHidden ? 0 : 1};
                 pointer-events:{legendHidden ? 'none' : 'auto'};">
+        <span style="position:absolute;right:6px;top:50%;transform:translateY(-50%);
+                      color:rgba(255,255,255,0.4);font-size:13px;line-height:1;">|</span>
         {#each speciesLegendPrimary as item}
         <div style="display:flex;align-items:center;gap:6px;white-space:nowrap;">
             <span style="width:10px;height:10px;border-radius:2px;background:{item.color};flex-shrink:0;"></span>
