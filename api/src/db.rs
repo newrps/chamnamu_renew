@@ -189,7 +189,7 @@ pub async fn create_new_chamnamu_data(pool: web::Data<Pool>, new_data: CreateCha
 
 // 현재 지도 뷰포트(경계 상자) 안에 들어오는 맵 데이터를 조회하는 함수입니다.
 // 위/경도 기준 bbox가 너무 크면(너무 축소된 상태) 빈 목록을 반환합니다 - 프론트에서 "확대해주세요" 안내로 처리.
-const MAX_BBOX_DEGREES: f64 = 0.3; // 위/경도 한 변 기준 대략 30km 내외
+const MAX_BBOX_DEGREES: f64 = 1.0; // 위/경도 한 변 기준 대략 110km 내외 (지도 maxLevel:7까지는 넉넉히 커버)
 
 pub async fn get_polygons_in_bbox(
     pool: web::Data<Pool>,
@@ -204,7 +204,7 @@ pub async fn get_polygons_in_bbox(
         SELECT ogc_fid, ST_AsGeoJSON(ST_Transform(wkb_geometry, 4326), 6), koftr_nm
         FROM chamnamu_tree
         WHERE wkb_geometry && ST_Transform(ST_MakeEnvelope($1, $2, $3, $4, 4326), 5179)
-        LIMIT 5000
+        LIMIT 10000
     "#;
 
     let rows = client.query(query, &[&min_lng, &min_lat, &max_lng, &max_lat])

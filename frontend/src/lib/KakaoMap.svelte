@@ -353,7 +353,7 @@
 
     // 뷰포트가 이 정도(위/경도 기준)보다 넓게 확대축소되면 서버에서도 빈 목록을 주므로
     // 굳이 요청을 안 보내고 화면 폴리곤만 정리한다 (백엔드 MAX_BBOX_DEGREES와 맞출 것)
-    const MAX_BBOX_DEGREES = 0.3;
+    const MAX_BBOX_DEGREES = 1.0;
 
     function getPaddedBounds() {
         const bounds = map.getBounds() as any;
