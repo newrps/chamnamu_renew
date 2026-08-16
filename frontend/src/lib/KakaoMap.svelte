@@ -512,7 +512,6 @@
     let roadviewInstance: any;
     let roadviewClickListener: any;
     let miniMap: any;
-    let miniMapMarker: any;
     let miniMapDirEl: HTMLDivElement | null = null;
     let miniMapDirOverlay: any;
     let miniMapPolygons: any[] = [];
@@ -584,9 +583,8 @@
                 roadviewInstance = new kakao.maps.Roadview(roadviewContainer);
                 kakao.maps.event.addListener(roadviewInstance, 'position_changed', () => {
                     const pos = roadviewInstance.getPosition();
-                    if (miniMap && miniMapMarker) {
+                    if (miniMap) {
                         miniMap.setCenter(pos);
-                        miniMapMarker.setPosition(pos);
                         ensureMiniMapDirOverlay(pos);
                         drawMiniMapPolygons(pos);
                     }
@@ -600,11 +598,9 @@
             roadviewInstance.relayout();
 
             if (!miniMap) {
-                miniMap = new kakao.maps.Map(miniMapContainer, { center: position, level: 3 });
-                miniMapMarker = new kakao.maps.Marker({ position, map: miniMap });
+                miniMap = new kakao.maps.Map(miniMapContainer, { center: position, level: 4 });
             } else {
                 miniMap.setCenter(position);
-                miniMapMarker.setPosition(position);
                 miniMap.relayout();
             }
             ensureMiniMapDirOverlay(position);
