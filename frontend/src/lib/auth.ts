@@ -21,6 +21,13 @@ export const authUser = writable<AuthUser | null>(null);
 // 다루지 않으므로 XSS가 터져도 토큰을 빼돌려 다른 곳에서 재사용할 수 없음.
 // 로그인 여부/사용자 정보는 /api/me 호출 결과로만 판단함.
 export async function initAuth() {
+    // httpOnly 쿠키 방식 전환 전에 저장된 기존 JWT를 사용자 기기에서 제거한다.
+    try {
+        localStorage.removeItem('jwt');
+    } catch {
+        // 저장소 접근이 차단된 브라우저에서도 인증 초기화는 계속 진행한다.
+    }
+
     try {
         const res = await fetch('/api/me');
         if (!res.ok) {

@@ -314,7 +314,7 @@
                 border-radius: 6px; font-size: 12px; white-space: nowrap;
                 display: flex; align-items: center; gap: 6px;
                 box-shadow: 0 2px 8px rgba(0,0,0,0.3); pointer-events: none;
-            "><span style="width:9px;height:9px;border-radius:2px;background:${color.fill};flex-shrink:0;"></span><span>${species || '기타참나무류'}</span></div>`;
+            "><span style="width:9px;height:9px;border-radius:2px;background:${color.fill};flex-shrink:0;"></span><span>${escapeHtml(species || '기타참나무류')}</span></div>`;
         if (!polygonInfoOverlay) {
             polygonInfoOverlay = new kakao.maps.CustomOverlay({
                 position, content: html, xAnchor: 0.5, yAnchor: 1.4, zIndex: 300
