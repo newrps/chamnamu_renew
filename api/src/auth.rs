@@ -1,4 +1,5 @@
 use actix_web::{get, web, HttpRequest, HttpResponse};
+use actix_web::cookie::{time::Duration as CookieDuration, Cookie, SameSite};
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -66,6 +67,33 @@ fn redirect_error(msg: &str) -> HttpResponse {
 pub struct CallbackQuery {
     pub code: Option<String>,
     pub error: Option<String>,
+    pub state: Option<String>,
+}
+
+// OAuth state는 로그인 요청을 시작한 브라우저가 맞는지 확인하는 CSRF 방지용 값.
+// 로그인 리다이렉트 시 랜덤 값을 만들어 HttpOnly 쿠키에 심어두고, 콜백에서 쿼리로 돌아온
+// state와 쿠키값이 일치하는지 확인함 - 일치하지 않으면 공격자가 자기 code로 만든 콜백
+// URL을 피해자에게 클릭시켜 피해자를 공격자 계정으로 로그인시키는 로그인 CSRF가 가능해짐.
+fn oauth_state_cookie_name(provider: &str) -> String {
+    format!("oauth_state_{}", provider)
+}
+
+fn build_state_cookie(provider: &str, state: String) -> Cookie<'static> {
+    Cookie::build(oauth_state_cookie_name(provider), state)
+        .path("/api/auth")
+        .http_only(true)
+        .same_site(SameSite::Lax)
+        .secure(app_base_url().starts_with("https://"))
+        .max_age(CookieDuration::minutes(10))
+        .finish()
+}
+
+fn validate_oauth_state(req: &HttpRequest, provider: &str, query_state: &Option<String>) -> bool {
+    let cookie_value = req.cookie(&oauth_state_cookie_name(provider));
+    match (cookie_value, query_state) {
+        (Some(cookie), Some(query)) => !query.is_empty() && cookie.value() == query,
+        _ => false,
+    }
 }
 
 // ── Google ────────────────────────────────────────────────────────────────────
@@ -77,11 +105,15 @@ pub async fn google_login() -> HttpResponse {
         return HttpResponse::ServiceUnavailable().body("Google OAuth not configured");
     }
     let redirect_uri = format!("{}/api/auth/callback/google", app_base_url());
+    let state = uuid::Uuid::new_v4().to_string();
     let url = format!(
-        "https://accounts.google.com/o/oauth2/v2/auth?client_id={}&redirect_uri={}&response_type=code&scope=openid%20email%20profile&access_type=offline",
-        client_id, urlencoding::encode(&redirect_uri)
+        "https://accounts.google.com/o/oauth2/v2/auth?client_id={}&redirect_uri={}&response_type=code&scope=openid%20email%20profile&access_type=offline&state={}",
+        client_id, urlencoding::encode(&redirect_uri), state
     );
-    HttpResponse::Found().append_header(("Location", url)).finish()
+    HttpResponse::Found()
+        .append_header(("Location", url))
+        .cookie(build_state_cookie("google", state))
+        .finish()
 }
 
 #[derive(Deserialize)]
@@ -97,12 +129,16 @@ struct GoogleUserInfo {
 
 #[get("/api/auth/callback/google")]
 pub async fn google_callback(
+    req: HttpRequest,
     query: web::Query<CallbackQuery>,
     pool: web::Data<deadpool_postgres::Pool>,
     http: web::Data<Client>,
 ) -> HttpResponse {
     if let Some(err) = &query.error {
         return redirect_error(err);
+    }
+    if !validate_oauth_state(&req, "google", &query.state) {
+        return redirect_error("invalid state");
     }
     let code = match &query.code {
         Some(c) => c.clone(),
@@ -169,7 +205,10 @@ pub async fn naver_login() -> HttpResponse {
         "https://nid.naver.com/oauth2.0/authorize?client_id={}&redirect_uri={}&response_type=code&state={}",
         client_id, urlencoding::encode(&redirect_uri), state
     );
-    HttpResponse::Found().append_header(("Location", url)).finish()
+    HttpResponse::Found()
+        .append_header(("Location", url))
+        .cookie(build_state_cookie("naver", state))
+        .finish()
 }
 
 #[derive(Deserialize)]
@@ -190,12 +229,16 @@ struct NaverUserInfo {
 
 #[get("/api/auth/callback/naver")]
 pub async fn naver_callback(
+    req: HttpRequest,
     query: web::Query<CallbackQuery>,
     pool: web::Data<deadpool_postgres::Pool>,
     http: web::Data<Client>,
 ) -> HttpResponse {
     if let Some(err) = &query.error {
         return redirect_error(err);
+    }
+    if !validate_oauth_state(&req, "naver", &query.state) {
+        return redirect_error("invalid state");
     }
     let code = match &query.code {
         Some(c) => c.clone(),
@@ -259,11 +302,15 @@ pub async fn kakao_login() -> HttpResponse {
         return HttpResponse::ServiceUnavailable().body("Kakao OAuth not configured");
     }
     let redirect_uri = format!("{}/api/auth/callback/kakao", app_base_url());
+    let state = uuid::Uuid::new_v4().to_string();
     let url = format!(
-        "https://kauth.kakao.com/oauth/authorize?client_id={}&redirect_uri={}&response_type=code",
-        client_id, urlencoding::encode(&redirect_uri)
+        "https://kauth.kakao.com/oauth/authorize?client_id={}&redirect_uri={}&response_type=code&state={}",
+        client_id, urlencoding::encode(&redirect_uri), state
     );
-    HttpResponse::Found().append_header(("Location", url)).finish()
+    HttpResponse::Found()
+        .append_header(("Location", url))
+        .cookie(build_state_cookie("kakao", state))
+        .finish()
 }
 
 #[derive(Deserialize)]
@@ -289,12 +336,16 @@ struct KakaoProfile {
 
 #[get("/api/auth/callback/kakao")]
 pub async fn kakao_callback(
+    req: HttpRequest,
     query: web::Query<CallbackQuery>,
     pool: web::Data<deadpool_postgres::Pool>,
     http: web::Data<Client>,
 ) -> HttpResponse {
     if let Some(err) = &query.error {
         return redirect_error(err);
+    }
+    if !validate_oauth_state(&req, "kakao", &query.state) {
+        return redirect_error("invalid state");
     }
     let code = match &query.code {
         Some(c) => c.clone(),
