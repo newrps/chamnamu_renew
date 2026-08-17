@@ -21,7 +21,7 @@ static JWT_SECRET: OnceLock<Vec<u8>> = OnceLock::new();
 fn jwt_secret() -> &'static [u8] {
     JWT_SECRET.get_or_init(|| {
         env::var("JWT_SECRET")
-            .unwrap_or_else(|_| "chamnamu_secret_key_2024".to_string())
+            .expect("JWT_SECRET must be set")
             .into_bytes()
     })
 }

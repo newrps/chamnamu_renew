@@ -158,6 +158,9 @@ async fn delete_location(
 async fn main() -> std::io::Result<()> {
     dotenv().ok();
 
+    // JWT_SECRET이 없으면 예측 가능한 기본값으로 조용히 넘어가지 않도록 시작 시점에 바로 확인
+    env::var("JWT_SECRET").expect("JWT_SECRET must be set");
+
     // DB
     let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     let config = database_url.parse::<tokio_postgres::Config>().expect("Failed to parse DATABASE_URL");
