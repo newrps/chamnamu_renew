@@ -1,4 +1,4 @@
-use actix_web::{get, web, HttpRequest, HttpResponse};
+use actix_web::{get, post, web, HttpRequest, HttpResponse};
 use actix_web::cookie::{time::Duration as CookieDuration, Cookie, SameSite};
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use reqwest::Client;
@@ -39,21 +39,53 @@ pub fn verify_jwt(token: &str) -> Option<Claims> {
         .ok()
 }
 
+// 로그인 상태는 httpOnly 쿠키(auth_token)로 유지함 - JS가 토큰 값을 직접 읽을 수 없어서
+// XSS가 터져도 토큰 자체를 빼돌려 다른 곳에서 재사용하는 건 막을 수 있음.
+// Authorization 헤더도 계속 지원(호환용) - 쿠키가 없으면 헤더를 확인함.
+pub const AUTH_COOKIE_NAME: &str = "auth_token";
+
 pub fn extract_token(req: &HttpRequest) -> Option<Claims> {
-    req.headers()
+    let from_header = req.headers()
         .get("Authorization")
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
-        .and_then(|token| verify_jwt(token))
+        .and_then(|token| verify_jwt(token));
+    if from_header.is_some() {
+        return from_header;
+    }
+    req.cookie(AUTH_COOKIE_NAME).and_then(|c| verify_jwt(c.value()))
 }
 
 fn app_base_url() -> String {
     env::var("APP_BASE_URL").unwrap_or_else(|_| "http://localhost:8888".to_string())
 }
 
-fn redirect_to_frontend(token: &str) -> HttpResponse {
-    let url = format!("{}/?token={}", app_base_url(), token);
-    HttpResponse::Found().append_header(("Location", url)).finish()
+fn build_auth_cookie(token: String) -> Cookie<'static> {
+    Cookie::build(AUTH_COOKIE_NAME, token)
+        .path("/")
+        .http_only(true)
+        .same_site(SameSite::Lax)
+        .secure(app_base_url().starts_with("https://"))
+        .max_age(CookieDuration::days(30))
+        .finish()
+}
+
+fn build_logout_cookie() -> Cookie<'static> {
+    Cookie::build(AUTH_COOKIE_NAME, "")
+        .path("/")
+        .http_only(true)
+        .same_site(SameSite::Lax)
+        .secure(app_base_url().starts_with("https://"))
+        .max_age(CookieDuration::seconds(0))
+        .finish()
+}
+
+fn redirect_to_frontend(token: String) -> HttpResponse {
+    let url = format!("{}/", app_base_url());
+    HttpResponse::Found()
+        .append_header(("Location", url))
+        .cookie(build_auth_cookie(token))
+        .finish()
 }
 
 fn redirect_error(msg: &str) -> HttpResponse {
@@ -188,7 +220,7 @@ pub async fn google_callback(
     };
 
     let token = create_jwt(user_id, &user_info.name);
-    redirect_to_frontend(&token)
+    redirect_to_frontend(token)
 }
 
 // ── Naver ─────────────────────────────────────────────────────────────────────
@@ -290,7 +322,7 @@ pub async fn naver_callback(
     };
 
     let token = create_jwt(user_id, &nickname);
-    redirect_to_frontend(&token)
+    redirect_to_frontend(token)
 }
 
 // ── Kakao ─────────────────────────────────────────────────────────────────────
@@ -403,7 +435,7 @@ pub async fn kakao_callback(
     };
 
     let token = create_jwt(user_id, &nickname);
-    redirect_to_frontend(&token)
+    redirect_to_frontend(token)
 }
 
 // ── /api/me ───────────────────────────────────────────────────────────────────
@@ -423,4 +455,9 @@ pub async fn get_me(req: HttpRequest) -> HttpResponse {
         }),
         None => HttpResponse::Unauthorized().finish(),
     }
+}
+
+#[post("/api/auth/logout")]
+pub async fn logout() -> HttpResponse {
+    HttpResponse::Ok().cookie(build_logout_cookie()).finish()
 }

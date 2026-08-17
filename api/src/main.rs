@@ -202,12 +202,14 @@ async fn main() -> std::io::Result<()> {
 
     let ad_cache_data = web::Data::new(ad_cache);
     let http_data = web::Data::new(http_client);
+    let app_origin = env::var("APP_BASE_URL").unwrap_or_else(|_| "http://localhost:8888".to_string());
 
     HttpServer::new(move || {
         let cors = Cors::default()
-            .allow_any_origin()
+            .allowed_origin(&app_origin)
             .allow_any_method()
             .allow_any_header()
+            .supports_credentials()
             .max_age(3600);
 
         App::new()
@@ -229,6 +231,7 @@ async fn main() -> std::io::Result<()> {
             .service(auth::kakao_login)
             .service(auth::kakao_callback)
             .service(auth::get_me)
+            .service(auth::logout)
             // 저장 위치
             .service(create_location)
             .service(get_locations)

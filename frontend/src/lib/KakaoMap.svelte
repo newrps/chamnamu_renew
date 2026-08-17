@@ -295,6 +295,17 @@
         e.stopImmediatePropagation();
     }
 
+    // 사용자가 직접 입력하는 값(저장 위치 이름 등)을 HTML 문자열에 넣기 전 이스케이프 -
+    // Kakao CustomOverlay/InfoWindow의 content는 실제 DOM으로 렌더링되므로 그대로 넣으면 XSS로 이어짐
+    function escapeHtml(value: string): string {
+        return value
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
     let polygonInfoOverlay: any = null;
     function showPolygonInfo(species: string | null | undefined, position: any) {
         const color = colorForSpecies(species);
@@ -1306,7 +1317,7 @@
                 )
             });
             const iw = new kakao.maps.InfoWindow({
-                content: `<div style="padding:4px 8px;font-size:13px;white-space:nowrap;">${loc.name}</div>`,
+                content: `<div style="padding:4px 8px;font-size:13px;white-space:nowrap;">${escapeHtml(loc.name)}</div>`,
                 removable: true
             });
             kakao.maps.event.addListener(marker, 'click', () => {
