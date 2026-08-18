@@ -1092,6 +1092,10 @@
                         });
                         let tapHighlightTimeout: ReturnType<typeof setTimeout> | null = null;
                         kakao.maps.event.addListener(polygon, 'click', (e: any) => {
+                            if (roadviewMode) {
+                                handleRoadviewMapClick(e);
+                                return;
+                            }
                             kakao.maps.event.preventMap();
                             polygon.setOptions({ fillOpacity: 0.8, strokeOpacity: 0.9, strokeWeight: 2 });
                             showPolygonInfo(item.species, e.latLng);
