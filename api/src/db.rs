@@ -235,8 +235,10 @@ pub async fn get_polygons_in_bbox(
     let client: Client = pool.get().await.map_err(ErrorInternalServerError)?;
 
     // 5179(미터 단위 투영좌표)에서 먼저 단순화한 뒤 4326으로 변환 - tolerance를 "미터"로 직관적으로 다룰 수 있다.
+    // 시각화 전용이라 토폴로지 보존은 불필요 - ST_SimplifyPreserveTopology는 넓은 뷰포트(수만 건)에서
+    // ST_Simplify보다 20배 이상 느려서(12s vs 0.5s) 프론트 10초 타임아웃을 넘겨버렸다.
     let geom_expr = if simplify_tolerance_m > 0.0 {
-        "ST_Transform(ST_SimplifyPreserveTopology(wkb_geometry, $5), 4326)"
+        "ST_Transform(ST_Simplify(wkb_geometry, $5), 4326)"
     } else {
         "ST_Transform(wkb_geometry, 4326)"
     };
