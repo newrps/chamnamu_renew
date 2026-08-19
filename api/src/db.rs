@@ -237,8 +237,10 @@ pub async fn get_polygons_in_bbox(
     // 5179(미터 단위 투영좌표)에서 먼저 단순화한 뒤 4326으로 변환 - tolerance를 "미터"로 직관적으로 다룰 수 있다.
     // 시각화 전용이라 토폴로지 보존은 불필요 - ST_SimplifyPreserveTopology는 넓은 뷰포트(수만 건)에서
     // ST_Simplify보다 20배 이상 느려서(12s vs 0.5s) 프론트 10초 타임아웃을 넘겨버렸다.
+    // preserveCollapsed(세 번째 인자)를 켜지 않으면 작고 얇은 폴리곤이 통째로 사라지며 NULL을 반환해서
+    // ST_AsGeoJSON(NULL) 파싱 중 패닉(502)이 났다 - true로 최소 유효 도형을 유지한다.
     let geom_expr = if simplify_tolerance_m > 0.0 {
-        "ST_Transform(ST_Simplify(wkb_geometry, $5), 4326)"
+        "ST_Transform(ST_Simplify(wkb_geometry, $5, true), 4326)"
     } else {
         "ST_Transform(wkb_geometry, 4326)"
     };
@@ -260,13 +262,14 @@ pub async fn get_polygons_in_bbox(
         client.query(&query, &[&min_lng, &min_lat, &max_lng, &max_lat]).await
     }.map_err(ErrorInternalServerError)?;
 
-    let map_data_list: Vec<MapData> = rows.iter().map(|row| {
-        let geom_str: String = row.get(1);
-        MapData {
+    // 단순화로 도형이 완전히 사라져 geometry가 NULL로 오는 경우 서버 패닉 대신 해당 폴리곤만 건너뛴다.
+    let map_data_list: Vec<MapData> = rows.iter().filter_map(|row| {
+        let geom_str: Option<String> = row.get(1);
+        geom_str.map(|geom_str| MapData {
             id: row.get(0),
             geometry: RawValue::from_string(geom_str).unwrap_or_else(|_| RawValue::from_string("null".to_string()).unwrap()),
             species: row.get(2),
-        }
+        })
     }).collect();
 
     Ok(map_data_list)
