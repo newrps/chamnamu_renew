@@ -200,39 +200,35 @@ pub async fn create_new_chamnamu_data(pool: web::Data<Pool>, new_data: CreateCha
 // 위/경도 기준 bbox가 너무 크면(너무 축소된 상태) 빈 목록을 반환합니다 - 프론트에서 "확대해주세요" 안내로 처리.
 const MAX_BBOX_DEGREES: f64 = 1.0; // 위/경도 한 변 기준 대략 110km 내외 (지도 maxLevel:7까지는 넉넉히 커버)
 
-// 카카오맵 줌레벨(숫자가 클수록 축소)별 폴리곤 단순화 허용오차(미터).
-// 확대 상태(레벨 낮음)는 원본 그대로, 축소할수록 점 개수를 줄여서 전송/렌더링 비용을 낮춘다.
-pub fn simplify_tolerance_for_level(level: i32) -> f64 {
-    match level {
-        i32::MIN..=4 => 0.0,
-        5 => 5.0,
-        6 => 10.0,
-        _ => 20.0,
-    }
-}
-
-// 레벨별 최대 반환 행 수. 단순화를 적용할수록 폴리곤 1개당 전송량이 확 줄어드니
-// 그만큼 한도를 올려서, 산림이 밀집된 넓은 뷰포트에서도 일부 지역이 통째로 잘려나가는 걸 줄인다.
-pub fn row_limit_for_level(level: i32) -> i64 {
-    match level {
-        i32::MIN..=4 => 10_000,
-        5 => 18_000,
-        6 => 26_000,
-        _ => 40_000,
+// 뷰포트 안에 실제로 걸리는 폴리곤 "개수"에 따른 단순화 허용오차(미터)와 최대 반환 행 수.
+// 줌레벨은 화면 크기에 따라 실제 커버 면적이 달라서(모바일은 화면이 작아 같은 레벨이라도
+// 훨씬 좁은 면적만 요청함) 밀집도의 대리 지표로 부정확하다 - 실제 개수를 직접 기준으로 삼는다.
+fn lod_for_count(count: i64) -> (f64, i64) {
+    match count {
+        i64::MIN..=800 => (0.0, 800),
+        801..=3_000 => (3.0, 3_000),
+        3_001..=8_000 => (8.0, 8_000),
+        8_001..=20_000 => (15.0, 20_000),
+        _ => (25.0, 40_000),
     }
 }
 
 pub async fn get_polygons_in_bbox(
     pool: web::Data<Pool>,
     min_lng: f64, min_lat: f64, max_lng: f64, max_lat: f64,
-    simplify_tolerance_m: f64,
-    row_limit: i64,
-) -> Result<Vec<MapData>, Error> {
+) -> Result<(Vec<MapData>, f64), Error> {
     if (max_lng - min_lng) > MAX_BBOX_DEGREES || (max_lat - min_lat) > MAX_BBOX_DEGREES {
-        return Ok(vec![]);
+        return Ok((vec![], 0.0));
     }
 
     let client: Client = pool.get().await.map_err(ErrorInternalServerError)?;
+
+    let count_row = client.query_one(
+        "SELECT count(*) FROM chamnamu_tree WHERE wkb_geometry && ST_Transform(ST_MakeEnvelope($1, $2, $3, $4, 4326), 5179)",
+        &[&min_lng, &min_lat, &max_lng, &max_lat],
+    ).await.map_err(ErrorInternalServerError)?;
+    let total_count: i64 = count_row.get(0);
+    let (simplify_tolerance_m, row_limit) = lod_for_count(total_count);
 
     // 5179(미터 단위 투영좌표)에서 먼저 단순화한 뒤 4326으로 변환 - tolerance를 "미터"로 직관적으로 다룰 수 있다.
     // 시각화 전용이라 토폴로지 보존은 불필요 - ST_SimplifyPreserveTopology는 넓은 뷰포트(수만 건)에서
@@ -272,7 +268,7 @@ pub async fn get_polygons_in_bbox(
         })
     }).collect();
 
-    Ok(map_data_list)
+    Ok((map_data_list, simplify_tolerance_m))
 }
 
 pub async fn get_nearest_polygon_by_species(

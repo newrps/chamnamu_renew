@@ -30,12 +30,12 @@ async fn get_nearby_data(
     let min_lat = parse_f64(&query, "minLat")?;
     let max_lng = parse_f64(&query, "maxLng")?;
     let max_lat = parse_f64(&query, "maxLat")?;
-    // 카카오맵 줌레벨(숫자가 클수록 축소) - 없으면 기존과 동일하게 단순화 없이 원본 정밀도로 응답
-    let level: i32 = query.get("level").and_then(|v| v.parse::<i32>().ok()).unwrap_or(0);
-    let tolerance_m = db::simplify_tolerance_for_level(level);
-    let row_limit = db::row_limit_for_level(level);
-    let list = db::get_polygons_in_bbox(pool, min_lng, min_lat, max_lng, max_lat, tolerance_m, row_limit).await?;
-    Ok(HttpResponse::Ok().json(list))
+    // 줌레벨이 아니라 뷰포트 안 실제 폴리곤 개수로 단순화 정도를 정한다 - 프론트가 사용한 tolerance를
+    // 알 수 있게 헤더로 같이 내려줘서, 같은 폴리곤이라도 상세도가 다르면 캐시가 섞이지 않게 한다.
+    let (list, tolerance_m) = db::get_polygons_in_bbox(pool, min_lng, min_lat, max_lng, max_lat).await?;
+    Ok(HttpResponse::Ok()
+        .insert_header(("X-Simplify-Tolerance", tolerance_m.to_string()))
+        .json(list))
 }
 
 #[derive(Deserialize)]

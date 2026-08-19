@@ -70,7 +70,7 @@
         bounds: PolygonBounds;
         ids: Set<string>;
         lastUsedAt: number;
-        level: number;
+        toleranceBucket: string;
     };
 
     let drawnPolygons = new Map<string, CachedPolygon>();
@@ -393,14 +393,9 @@
     let lastPolygonUpdate = 0;
     let lastCenter: { lat: number, lng: number } | null = null;
     let fetchAbortController: AbortController | null = null;
-    let currentPolygonLevelBucket = 0;
-
-    // 백엔드 simplify_tolerance_for_level의 구간과 동일하게 맞춰서 캐시가 불필요하게 쪼개지지 않도록 한다.
-    function polygonLevelBucket(level: number): number {
-        if (level <= 4) return 0;
-        if (level >= 7) return 7;
-        return level; // 5, 6
-    }
+    // 서버가 응답 헤더(X-Simplify-Tolerance)로 알려주는, 실제로 적용된 단순화 허용오차.
+    // 줌레벨이 아니라 뷰포트 안 폴리곤 개수 기준이라 클라이언트가 미리 계산할 수 없다.
+    let currentPolygonToleranceBucket = '0';
 
     function configurePolygonCacheForDevice() {
         const nav = navigator as Navigator & { deviceMemory?: number };
@@ -895,11 +890,13 @@
         activePolygonIds = new Set(ids);
     }
 
-    function findCachedPolygonQuery(bounds: PolygonBounds, level: number) {
+    // 캐시된 쿼리를 재사용하는 건 "다시 안 그려도 된다"는 뜻이라 그 쿼리가 어떤 tolerance로 그려졌든
+    // 항상 안전하다 - 대신 재사용 시 currentPolygonToleranceBucket을 그 쿼리의 값으로 복원해줘야
+    // highlightPendingNearestPolygon이 올바른 캐시 키를 찾을 수 있다.
+    function findCachedPolygonQuery(bounds: PolygonBounds) {
         const now = Date.now();
         polygonQueryCache = polygonQueryCache.filter(entry => now - entry.lastUsedAt < POLYGON_QUERY_CACHE_TTL);
         const entry = polygonQueryCache.find(candidate =>
-            candidate.level === level &&
             boundsContains(candidate.bounds, bounds) &&
             Array.from(candidate.ids).every(id => drawnPolygons.has(id))
         );
@@ -907,10 +904,10 @@
         return entry;
     }
 
-    function rememberPolygonQuery(bounds: PolygonBounds, ids: Set<string>, level: number) {
+    function rememberPolygonQuery(bounds: PolygonBounds, ids: Set<string>, toleranceBucket: string) {
         const now = Date.now();
-        polygonQueryCache = polygonQueryCache.filter(entry => !(entry.level === level && boundsContains(bounds, entry.bounds)));
-        polygonQueryCache.push({ bounds, ids: new Set(ids), lastUsedAt: now, level });
+        polygonQueryCache = polygonQueryCache.filter(entry => !boundsContains(bounds, entry.bounds));
+        polygonQueryCache.push({ bounds, ids: new Set(ids), lastUsedAt: now, toleranceBucket });
         polygonQueryCache.sort((a, b) => b.lastUsedAt - a.lastUsedAt);
         polygonQueryCache = polygonQueryCache.slice(0, polygonQueryCacheLimit);
     }
@@ -945,7 +942,7 @@
 
     function highlightPendingNearestPolygon() {
         if (!pendingNearestPolygonId) return;
-        const key = `${pendingNearestPolygonId}:${currentPolygonLevelBucket}`;
+        const key = `${pendingNearestPolygonId}:${currentPolygonToleranceBucket}`;
         const cached = drawnPolygons.get(key);
         if (!cached || !activePolygonIds.has(key)) return;
 
@@ -1023,9 +1020,6 @@
     async function fetchAndDrawPolygons() {
         if (!map) return;
 
-        const levelBucket = polygonLevelBucket((map as any).getLevel());
-        currentPolygonLevelBucket = levelBucket;
-
         if (fetchAbortController) fetchAbortController.abort();
         fetchAbortController = new AbortController();
         const thisController = fetchAbortController;
@@ -1040,8 +1034,9 @@
             return;
         }
 
-        const cachedQuery = findCachedPolygonQuery(requestBounds, levelBucket);
+        const cachedQuery = findCachedPolygonQuery(requestBounds);
         if (cachedQuery) {
+            currentPolygonToleranceBucket = cachedQuery.toleranceBucket;
             activatePolygonIds(cachedQuery.ids);
             highlightPendingNearestPolygon();
             if (!polygonsFetchedOnce) {
@@ -1051,7 +1046,7 @@
             return;
         }
 
-        const apiUrl = `${VITE_API_BASE_URL}/api/polygon/nearby?minLng=${minLng}&minLat=${minLat}&maxLng=${maxLng}&maxLat=${maxLat}&level=${levelBucket}`;
+        const apiUrl = `${VITE_API_BASE_URL}/api/polygon/nearby?minLng=${minLng}&minLat=${minLat}&maxLng=${maxLng}&maxLat=${maxLat}`;
 
         let timedOut = false;
         const timeoutId = setTimeout(() => {
@@ -1063,6 +1058,10 @@
             const response = await fetch(apiUrl, { signal });
             clearTimeout(timeoutId);
             if (!response.ok) throw new Error(`HTTP 오류! 상태: ${response.status}`);
+            // 서버가 뷰포트 안 폴리곤 개수를 보고 정한 실제 단순화 정도 - 캐시 키에 써서
+            // 상세도가 다른 예전 도형이 잘못 재사용되지 않게 한다.
+            const toleranceBucket = response.headers.get('X-Simplify-Tolerance') ?? '0';
+            currentPolygonToleranceBucket = toleranceBucket;
             const data = await response.json();
 
             if (signal.aborted) return;
@@ -1071,7 +1070,7 @@
             const renderStartedAt = performance.now();
 
             data.forEach((item: any) => {
-                const key = `${item.id}:${levelBucket}`;
+                const key = `${item.id}:${toleranceBucket}`;
                 incomingIds.add(key);
                 const cached = drawnPolygons.get(key);
                 if (cached) {
@@ -1125,7 +1124,7 @@
             });
 
             activatePolygonIds(incomingIds);
-            rememberPolygonQuery(requestBounds, incomingIds, levelBucket);
+            rememberPolygonQuery(requestBounds, incomingIds, toleranceBucket);
             adaptPolygonCacheToRenderTime(performance.now() - renderStartedAt);
             evictUnusedPolygons();
             highlightPendingNearestPolygon();
