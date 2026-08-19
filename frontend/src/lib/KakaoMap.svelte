@@ -70,6 +70,7 @@
         bounds: PolygonBounds;
         ids: Set<string>;
         lastUsedAt: number;
+        level: number;
         toleranceBucket: string;
     };
 
@@ -890,13 +891,14 @@
         activePolygonIds = new Set(ids);
     }
 
-    // 캐시된 쿼리를 재사용하는 건 "다시 안 그려도 된다"는 뜻이라 그 쿼리가 어떤 tolerance로 그려졌든
-    // 항상 안전하다 - 대신 재사용 시 currentPolygonToleranceBucket을 그 쿼리의 값으로 복원해줘야
-    // highlightPendingNearestPolygon이 올바른 캐시 키를 찾을 수 있다.
-    function findCachedPolygonQuery(bounds: PolygonBounds) {
+    // bounds가 이전 쿼리에 포함된다고 무조건 재사용하면, 넓게 본 뒤(단순화됨) 확대해 들어갔을 때
+    // 실제로는 더 좁은 영역이라 서버가 세밀하게 다시 계산해줘야 하는데도 예전의 뭉개진 도형을
+    // 계속 재사용하게 된다. level이 같을 때만(=패닝) 재사용하고, 줌이 바뀌면 항상 다시 요청한다.
+    function findCachedPolygonQuery(bounds: PolygonBounds, level: number) {
         const now = Date.now();
         polygonQueryCache = polygonQueryCache.filter(entry => now - entry.lastUsedAt < POLYGON_QUERY_CACHE_TTL);
         const entry = polygonQueryCache.find(candidate =>
+            candidate.level === level &&
             boundsContains(candidate.bounds, bounds) &&
             Array.from(candidate.ids).every(id => drawnPolygons.has(id))
         );
@@ -904,10 +906,10 @@
         return entry;
     }
 
-    function rememberPolygonQuery(bounds: PolygonBounds, ids: Set<string>, toleranceBucket: string) {
+    function rememberPolygonQuery(bounds: PolygonBounds, ids: Set<string>, level: number, toleranceBucket: string) {
         const now = Date.now();
-        polygonQueryCache = polygonQueryCache.filter(entry => !boundsContains(bounds, entry.bounds));
-        polygonQueryCache.push({ bounds, ids: new Set(ids), lastUsedAt: now, toleranceBucket });
+        polygonQueryCache = polygonQueryCache.filter(entry => !(entry.level === level && boundsContains(bounds, entry.bounds)));
+        polygonQueryCache.push({ bounds, ids: new Set(ids), lastUsedAt: now, level, toleranceBucket });
         polygonQueryCache.sort((a, b) => b.lastUsedAt - a.lastUsedAt);
         polygonQueryCache = polygonQueryCache.slice(0, polygonQueryCacheLimit);
     }
@@ -1020,6 +1022,8 @@
     async function fetchAndDrawPolygons() {
         if (!map) return;
 
+        const level = (map as any).getLevel();
+
         if (fetchAbortController) fetchAbortController.abort();
         fetchAbortController = new AbortController();
         const thisController = fetchAbortController;
@@ -1034,7 +1038,7 @@
             return;
         }
 
-        const cachedQuery = findCachedPolygonQuery(requestBounds);
+        const cachedQuery = findCachedPolygonQuery(requestBounds, level);
         if (cachedQuery) {
             currentPolygonToleranceBucket = cachedQuery.toleranceBucket;
             activatePolygonIds(cachedQuery.ids);
@@ -1124,7 +1128,7 @@
             });
 
             activatePolygonIds(incomingIds);
-            rememberPolygonQuery(requestBounds, incomingIds, toleranceBucket);
+            rememberPolygonQuery(requestBounds, incomingIds, level, toleranceBucket);
             adaptPolygonCacheToRenderTime(performance.now() - renderStartedAt);
             evictUnusedPolygons();
             highlightPendingNearestPolygon();
