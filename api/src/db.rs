@@ -200,25 +200,50 @@ pub async fn create_new_chamnamu_data(pool: web::Data<Pool>, new_data: CreateCha
 // 위/경도 기준 bbox가 너무 크면(너무 축소된 상태) 빈 목록을 반환합니다 - 프론트에서 "확대해주세요" 안내로 처리.
 const MAX_BBOX_DEGREES: f64 = 1.0; // 위/경도 한 변 기준 대략 110km 내외 (지도 maxLevel:7까지는 넉넉히 커버)
 
+// 카카오맵 줌레벨(숫자가 클수록 축소)별 폴리곤 단순화 허용오차(미터).
+// 확대 상태(레벨 낮음)는 원본 그대로, 축소할수록 점 개수를 줄여서 전송/렌더링 비용을 낮춘다.
+pub fn simplify_tolerance_for_level(level: i32) -> f64 {
+    match level {
+        i32::MIN..=2 => 0.0,
+        3 => 2.0,
+        4 => 5.0,
+        5 => 10.0,
+        6 => 20.0,
+        _ => 35.0,
+    }
+}
+
 pub async fn get_polygons_in_bbox(
     pool: web::Data<Pool>,
     min_lng: f64, min_lat: f64, max_lng: f64, max_lat: f64,
+    simplify_tolerance_m: f64,
 ) -> Result<Vec<MapData>, Error> {
     if (max_lng - min_lng) > MAX_BBOX_DEGREES || (max_lat - min_lat) > MAX_BBOX_DEGREES {
         return Ok(vec![]);
     }
 
     let client: Client = pool.get().await.map_err(ErrorInternalServerError)?;
-    let query = r#"
-        SELECT ogc_fid, ST_AsGeoJSON(ST_Transform(wkb_geometry, 4326), 6), koftr_nm
+
+    // 5179(미터 단위 투영좌표)에서 먼저 단순화한 뒤 4326으로 변환 - tolerance를 "미터"로 직관적으로 다룰 수 있다.
+    let geom_expr = if simplify_tolerance_m > 0.0 {
+        "ST_Transform(ST_SimplifyPreserveTopology(wkb_geometry, $5), 4326)"
+    } else {
+        "ST_Transform(wkb_geometry, 4326)"
+    };
+    let query = format!(
+        r#"
+        SELECT ogc_fid, ST_AsGeoJSON({geom_expr}, 6), koftr_nm
         FROM chamnamu_tree
         WHERE wkb_geometry && ST_Transform(ST_MakeEnvelope($1, $2, $3, $4, 4326), 5179)
         LIMIT 10000
-    "#;
+        "#
+    );
 
-    let rows = client.query(query, &[&min_lng, &min_lat, &max_lng, &max_lat])
-        .await
-        .map_err(ErrorInternalServerError)?;
+    let rows = if simplify_tolerance_m > 0.0 {
+        client.query(&query, &[&min_lng, &min_lat, &max_lng, &max_lat, &simplify_tolerance_m]).await
+    } else {
+        client.query(&query, &[&min_lng, &min_lat, &max_lng, &max_lat]).await
+    }.map_err(ErrorInternalServerError)?;
 
     let map_data_list: Vec<MapData> = rows.iter().map(|row| {
         let geom_str: String = row.get(1);

@@ -30,7 +30,10 @@ async fn get_nearby_data(
     let min_lat = parse_f64(&query, "minLat")?;
     let max_lng = parse_f64(&query, "maxLng")?;
     let max_lat = parse_f64(&query, "maxLat")?;
-    let list = db::get_polygons_in_bbox(pool, min_lng, min_lat, max_lng, max_lat).await?;
+    // 카카오맵 줌레벨(숫자가 클수록 축소) - 없으면 기존과 동일하게 단순화 없이 원본 정밀도로 응답
+    let level: i32 = query.get("level").and_then(|v| v.parse::<i32>().ok()).unwrap_or(0);
+    let tolerance_m = db::simplify_tolerance_for_level(level);
+    let list = db::get_polygons_in_bbox(pool, min_lng, min_lat, max_lng, max_lat, tolerance_m).await?;
     Ok(HttpResponse::Ok().json(list))
 }
 

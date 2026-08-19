@@ -70,6 +70,7 @@
         bounds: PolygonBounds;
         ids: Set<string>;
         lastUsedAt: number;
+        level: number;
     };
 
     let drawnPolygons = new Map<string, CachedPolygon>();
@@ -392,6 +393,14 @@
     let lastPolygonUpdate = 0;
     let lastCenter: { lat: number, lng: number } | null = null;
     let fetchAbortController: AbortController | null = null;
+    let currentPolygonLevelBucket = 0;
+
+    // 백엔드 simplify_tolerance_for_level의 구간과 동일하게 맞춰서 캐시가 불필요하게 쪼개지지 않도록 한다.
+    function polygonLevelBucket(level: number): number {
+        if (level <= 2) return 0;
+        if (level >= 7) return 7;
+        return level;
+    }
 
     function configurePolygonCacheForDevice() {
         const nav = navigator as Navigator & { deviceMemory?: number };
@@ -886,10 +895,11 @@
         activePolygonIds = new Set(ids);
     }
 
-    function findCachedPolygonQuery(bounds: PolygonBounds) {
+    function findCachedPolygonQuery(bounds: PolygonBounds, level: number) {
         const now = Date.now();
         polygonQueryCache = polygonQueryCache.filter(entry => now - entry.lastUsedAt < POLYGON_QUERY_CACHE_TTL);
         const entry = polygonQueryCache.find(candidate =>
+            candidate.level === level &&
             boundsContains(candidate.bounds, bounds) &&
             Array.from(candidate.ids).every(id => drawnPolygons.has(id))
         );
@@ -897,10 +907,10 @@
         return entry;
     }
 
-    function rememberPolygonQuery(bounds: PolygonBounds, ids: Set<string>) {
+    function rememberPolygonQuery(bounds: PolygonBounds, ids: Set<string>, level: number) {
         const now = Date.now();
-        polygonQueryCache = polygonQueryCache.filter(entry => !boundsContains(bounds, entry.bounds));
-        polygonQueryCache.push({ bounds, ids: new Set(ids), lastUsedAt: now });
+        polygonQueryCache = polygonQueryCache.filter(entry => !(entry.level === level && boundsContains(bounds, entry.bounds)));
+        polygonQueryCache.push({ bounds, ids: new Set(ids), lastUsedAt: now, level });
         polygonQueryCache.sort((a, b) => b.lastUsedAt - a.lastUsedAt);
         polygonQueryCache = polygonQueryCache.slice(0, polygonQueryCacheLimit);
     }
@@ -935,8 +945,9 @@
 
     function highlightPendingNearestPolygon() {
         if (!pendingNearestPolygonId) return;
-        const cached = drawnPolygons.get(pendingNearestPolygonId);
-        if (!cached || !activePolygonIds.has(pendingNearestPolygonId)) return;
+        const key = `${pendingNearestPolygonId}:${currentPolygonLevelBucket}`;
+        const cached = drawnPolygons.get(key);
+        if (!cached || !activePolygonIds.has(key)) return;
 
         if (nearestHighlightTimer) clearTimeout(nearestHighlightTimer);
         cached.polygons.forEach(polygon => (polygon as any).setOptions({
@@ -944,10 +955,9 @@
             strokeOpacity: 1,
             strokeWeight: 3
         }));
-        const highlightedId = pendingNearestPolygonId;
         pendingNearestPolygonId = null;
         nearestHighlightTimer = setTimeout(() => {
-            const highlighted = drawnPolygons.get(highlightedId);
+            const highlighted = drawnPolygons.get(key);
             if (highlighted) {
                 const options = polygonRestingOptions(highlighted.species);
                 highlighted.polygons.forEach(polygon => (polygon as any).setOptions(options));
@@ -1013,6 +1023,9 @@
     async function fetchAndDrawPolygons() {
         if (!map) return;
 
+        const levelBucket = polygonLevelBucket((map as any).getLevel());
+        currentPolygonLevelBucket = levelBucket;
+
         if (fetchAbortController) fetchAbortController.abort();
         fetchAbortController = new AbortController();
         const thisController = fetchAbortController;
@@ -1027,7 +1040,7 @@
             return;
         }
 
-        const cachedQuery = findCachedPolygonQuery(requestBounds);
+        const cachedQuery = findCachedPolygonQuery(requestBounds, levelBucket);
         if (cachedQuery) {
             activatePolygonIds(cachedQuery.ids);
             highlightPendingNearestPolygon();
@@ -1038,7 +1051,7 @@
             return;
         }
 
-        const apiUrl = `${VITE_API_BASE_URL}/api/polygon/nearby?minLng=${minLng}&minLat=${minLat}&maxLng=${maxLng}&maxLat=${maxLat}`;
+        const apiUrl = `${VITE_API_BASE_URL}/api/polygon/nearby?minLng=${minLng}&minLat=${minLat}&maxLng=${maxLng}&maxLat=${maxLat}&level=${levelBucket}`;
 
         let timedOut = false;
         const timeoutId = setTimeout(() => {
@@ -1058,7 +1071,7 @@
             const renderStartedAt = performance.now();
 
             data.forEach((item: any) => {
-                const key = String(item.id);
+                const key = `${item.id}:${levelBucket}`;
                 incomingIds.add(key);
                 const cached = drawnPolygons.get(key);
                 if (cached) {
@@ -1112,7 +1125,7 @@
             });
 
             activatePolygonIds(incomingIds);
-            rememberPolygonQuery(requestBounds, incomingIds);
+            rememberPolygonQuery(requestBounds, incomingIds, levelBucket);
             adaptPolygonCacheToRenderTime(performance.now() - renderStartedAt);
             evictUnusedPolygons();
             highlightPendingNearestPolygon();
