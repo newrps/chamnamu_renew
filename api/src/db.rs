@@ -213,10 +213,24 @@ pub fn simplify_tolerance_for_level(level: i32) -> f64 {
     }
 }
 
+// 레벨별 최대 반환 행 수. 단순화를 적용할수록 폴리곤 1개당 전송량이 확 줄어드니
+// 그만큼 한도를 올려서, 산림이 밀집된 넓은 뷰포트에서도 일부 지역이 통째로 잘려나가는 걸 줄인다.
+pub fn row_limit_for_level(level: i32) -> i64 {
+    match level {
+        i32::MIN..=2 => 10_000,
+        3 => 12_000,
+        4 => 16_000,
+        5 => 22_000,
+        6 => 32_000,
+        _ => 45_000,
+    }
+}
+
 pub async fn get_polygons_in_bbox(
     pool: web::Data<Pool>,
     min_lng: f64, min_lat: f64, max_lng: f64, max_lat: f64,
     simplify_tolerance_m: f64,
+    row_limit: i64,
 ) -> Result<Vec<MapData>, Error> {
     if (max_lng - min_lng) > MAX_BBOX_DEGREES || (max_lat - min_lat) > MAX_BBOX_DEGREES {
         return Ok(vec![]);
@@ -230,12 +244,15 @@ pub async fn get_polygons_in_bbox(
     } else {
         "ST_Transform(wkb_geometry, 4326)"
     };
+    // row_limit은 서버에서 계산한 고정 후보값 중 하나라 포맷팅해도 인젝션 위험이 없다.
+    // ORDER BY로 매 요청 동일한 부분집합이 뽑히게 해 한도 초과 시에도 화면이 깜빡이지 않게 한다.
     let query = format!(
         r#"
         SELECT ogc_fid, ST_AsGeoJSON({geom_expr}, 6), koftr_nm
         FROM chamnamu_tree
         WHERE wkb_geometry && ST_Transform(ST_MakeEnvelope($1, $2, $3, $4, 4326), 5179)
-        LIMIT 10000
+        ORDER BY ogc_fid
+        LIMIT {row_limit}
         "#
     );
 
