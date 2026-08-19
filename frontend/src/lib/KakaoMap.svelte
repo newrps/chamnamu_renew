@@ -1070,12 +1070,27 @@
 
             if (signal.aborted) return;
 
-            const incomingIds = new Set<string>();
+            const incomingIds = new Set<string>(data.map((item: any) => `${item.id}:${toleranceBucket}`));
             const renderStartedAt = performance.now();
 
-            data.forEach((item: any) => {
+            // 화면에 실제로 보이는 것부터 먼저 그리고, 패딩 여유분(아직 안 보이는 주변)은 뒤로 미룬다.
+            const strictBounds = map.getBounds() as any;
+            const visSw = strictBounds.getSouthWest();
+            const visNe = strictBounds.getNorthEast();
+            function isRoughlyVisible(item: any): boolean {
+                const g = item.geometry;
+                const ring = g?.type === 'MultiPolygon' ? g.coordinates?.[0]?.[0] : g?.coordinates?.[0];
+                const first = ring?.[0];
+                if (!first) return false;
+                const [lng, lat] = first;
+                return lat >= visSw.getLat() && lat <= visNe.getLat() && lng >= visSw.getLng() && lng <= visNe.getLng();
+            }
+            const prioritized = [...data].sort((a: any, b: any) => Number(isRoughlyVisible(b)) - Number(isRoughlyVisible(a)));
+
+            // 수만 개를 한 번에 동기 생성하면 메인스레드가 그 순간 멈추니, 프레임당 일정량씩만 만든다.
+            const CHUNK_SIZE = 400;
+            function createPolygonForItem(item: any) {
                 const key = `${item.id}:${toleranceBucket}`;
-                incomingIds.add(key);
                 const cached = drawnPolygons.get(key);
                 if (cached) {
                     cached.lastUsedAt = Date.now();
@@ -1098,9 +1113,6 @@
                         kakao.maps.event.addListener(polygon, 'mouseover', (e: any) => {
                             polygon.setOptions({ fillOpacity: 0.8, strokeOpacity: 0.9, strokeWeight: 2 });
                             showPolygonInfo(item.species, e.latLng);
-                        });
-                        kakao.maps.event.addListener(polygon, 'mousemove', (e: any) => {
-                            if (polygonInfoOverlay) polygonInfoOverlay.setPosition(e.latLng);
                         });
                         kakao.maps.event.addListener(polygon, 'mouseout', () => {
                             polygon.setOptions(polygonRestingOptions(item.species));
@@ -1125,18 +1137,34 @@
                     }
                 });
                 drawnPolygons.set(key, { polygons: newPolys, species: item.species ?? null, lastUsedAt: Date.now() });
-            });
-
-            activatePolygonIds(incomingIds);
-            rememberPolygonQuery(requestBounds, incomingIds, level, toleranceBucket);
-            adaptPolygonCacheToRenderTime(performance.now() - renderStartedAt);
-            evictUnusedPolygons();
-            highlightPendingNearestPolygon();
-
-            if (!polygonsFetchedOnce) {
-                polygonsFetchedOnce = true;
-                dispatch('polygonsfetched');
             }
+
+            function finishDrawing() {
+                activatePolygonIds(incomingIds);
+                rememberPolygonQuery(requestBounds, incomingIds, level, toleranceBucket);
+                adaptPolygonCacheToRenderTime(performance.now() - renderStartedAt);
+                evictUnusedPolygons();
+                highlightPendingNearestPolygon();
+
+                if (!polygonsFetchedOnce) {
+                    polygonsFetchedOnce = true;
+                    dispatch('polygonsfetched');
+                }
+            }
+
+            function processChunk(startIndex: number) {
+                if (signal.aborted) return; // 새 요청이 이미 이 요청을 대체함 - 남은 작업을 그릴 필요 없다
+                const endIndex = Math.min(startIndex + CHUNK_SIZE, prioritized.length);
+                for (let i = startIndex; i < endIndex; i++) {
+                    createPolygonForItem(prioritized[i]);
+                }
+                if (endIndex < prioritized.length) {
+                    requestAnimationFrame(() => processChunk(endIndex));
+                } else {
+                    finishDrawing();
+                }
+            }
+            processChunk(0);
         } catch (error: any) {
             clearTimeout(timeoutId);
             if (error?.name === 'AbortError' && !timedOut) return;
