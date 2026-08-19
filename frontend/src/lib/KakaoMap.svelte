@@ -397,9 +397,9 @@
 
     // 백엔드 simplify_tolerance_for_level의 구간과 동일하게 맞춰서 캐시가 불필요하게 쪼개지지 않도록 한다.
     function polygonLevelBucket(level: number): number {
-        if (level <= 2) return 0;
+        if (level <= 4) return 0;
         if (level >= 7) return 7;
-        return level;
+        return level; // 5, 6
     }
 
     function configurePolygonCacheForDevice() {
