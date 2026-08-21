@@ -1471,7 +1471,7 @@
 <div class="page-container">
     <header class="header">
         <h1>
-            깜장 참나무 지도
+            깜장 참나무 지도(안정)
             <span class="engine-switch-badge"><a href="https://cnm2.zam.kr">🧪 새 지도 엔진(MapLibre) 이용해보기</a></span>
         </h1>
         {#if $authUser}
