@@ -31,6 +31,8 @@ services:
       - KAKAO_CLIENT_SECRET=${KAKAO_CLIENT_SECRET}
       - MALLOC_ARENA_MAX=2
       - MALLOC_MMAP_THRESHOLD_=131072
+    ports:
+      - "127.0.0.1:${API_HOST_PORT:-8080}:8080"
     depends_on:
       db:
         condition: service_healthy
@@ -43,7 +45,7 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: ${DB_NAME}
     ports:
-      - "127.0.0.1:5433:5432"
+      - "127.0.0.1:${DB_HOST_PORT:-5433}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:

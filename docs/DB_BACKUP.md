@@ -53,6 +53,8 @@ scp -O -P 56822 "C:/git/chamnamu_renew/db_backups/chanamudb_YYYYMMDD.dump" newrp
 docker exec chamnamu_renew-db-1 psql -U newrps -d chanamudb -c "REFRESH MATERIALIZED VIEW chamnamu_tree;"
 ```
 
+⚠️ `chamnamu_renew2`(Martin+MapLibre 실험판)가 같이 떠 있다면, Martin이 타일을 인메모리에 캐싱하고 있어서(기본 256MB) refresh해도 예전 폴리곤이 계속 보일 수 있음 — `docker compose -f chamnamu_renew2/docker-compose.yml restart martin`으로 캐시를 비워줘야 함.
+
 ## 특정 테이블만 백업/복구하고 싶을 때
 
 전체 덤프 대신 테이블 단위로 빠르게 스냅샷 뜨고 싶을 때 (`border_dmz` 예시):
