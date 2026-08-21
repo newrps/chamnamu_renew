@@ -563,6 +563,20 @@
         color: #2c3e50;
     }
 
+    .engine-switch-badge {
+        display: block;
+        font-size: 11px;
+        font-weight: 400;
+        margin-top: 4px;
+    }
+    .engine-switch-badge a {
+        color: #4dabf7;
+        text-decoration: none;
+    }
+    .engine-switch-badge a:hover {
+        text-decoration: underline;
+    }
+
     .header .subtitle {
         font-size: 14px;
         margin-top: 8px;
@@ -1456,7 +1470,10 @@
 
 <div class="page-container">
     <header class="header">
-        <h1>깜장 참나무 지도</h1>
+        <h1>
+            깜장 참나무 지도
+            <span class="engine-switch-badge"><a href="https://cnm2.zam.kr">🧪 새 지도 엔진(MapLibre) 이용해보기</a></span>
+        </h1>
         {#if $authUser}
             <div class="user-menu-wrap">
                 <button class="auth-btn logged-in" on:click|stopPropagation={() => showUserMenu = !showUserMenu} title={$authUser.nickname}>
