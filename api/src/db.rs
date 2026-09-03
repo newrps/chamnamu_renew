@@ -200,18 +200,8 @@ pub async fn create_new_chamnamu_data(pool: web::Data<Pool>, new_data: CreateCha
 // 위/경도 기준 bbox가 너무 크면(너무 축소된 상태) 빈 목록을 반환합니다 - 프론트에서 "확대해주세요" 안내로 처리.
 const MAX_BBOX_DEGREES: f64 = 1.0; // 위/경도 한 변 기준 대략 110km 내외 (지도 maxLevel:7까지는 넉넉히 커버)
 
-// 뷰포트 안에 실제로 걸리는 폴리곤 "개수"에 따른 단순화 허용오차(미터)와 최대 반환 행 수.
-// 줌레벨은 화면 크기에 따라 실제 커버 면적이 달라서(모바일은 화면이 작아 같은 레벨이라도
-// 훨씬 좁은 면적만 요청함) 밀집도의 대리 지표로 부정확하다 - 실제 개수를 직접 기준으로 삼는다.
-fn lod_for_count(count: i64) -> (f64, i64) {
-    match count {
-        i64::MIN..=800 => (0.0, 800),
-        801..=3_000 => (3.0, 3_000),
-        3_001..=8_000 => (8.0, 8_000),
-        8_001..=20_000 => (15.0, 20_000),
-        _ => (25.0, 40_000),
-    }
-}
+// 뷰포트 안 폴리곤이 아무리 많아도 응답이 무한정 커지지 않도록 잡아두는 안전 상한.
+const MAX_ROW_LIMIT: i64 = 40_000;
 
 pub async fn get_polygons_in_bbox(
     pool: web::Data<Pool>,
@@ -223,42 +213,21 @@ pub async fn get_polygons_in_bbox(
 
     let client: Client = pool.get().await.map_err(ErrorInternalServerError)?;
 
-    let count_row = client.query_one(
-        "SELECT count(*) FROM chamnamu_tree WHERE wkb_geometry && ST_Transform(ST_MakeEnvelope($1, $2, $3, $4, 4326), 5179)",
+    // 개수 기반 단순화(ST_Simplify) 없이 항상 원본 geometry를 그대로 반환한다.
+    // ORDER BY로 매 요청 동일한 부분집합이 뽑히게 해 안전 상한 초과 시에도 화면이 깜빡이지 않게 한다.
+    let rows = client.query(
+        &format!(
+            r#"
+            SELECT ogc_fid, ST_AsGeoJSON(ST_Transform(wkb_geometry, 4326), 6), koftr_nm
+            FROM chamnamu_tree
+            WHERE wkb_geometry && ST_Transform(ST_MakeEnvelope($1, $2, $3, $4, 4326), 5179)
+            ORDER BY ogc_fid
+            LIMIT {MAX_ROW_LIMIT}
+            "#
+        ),
         &[&min_lng, &min_lat, &max_lng, &max_lat],
     ).await.map_err(ErrorInternalServerError)?;
-    let total_count: i64 = count_row.get(0);
-    let (simplify_tolerance_m, row_limit) = lod_for_count(total_count);
 
-    // 5179(미터 단위 투영좌표)에서 먼저 단순화한 뒤 4326으로 변환 - tolerance를 "미터"로 직관적으로 다룰 수 있다.
-    // 시각화 전용이라 토폴로지 보존은 불필요 - ST_SimplifyPreserveTopology는 넓은 뷰포트(수만 건)에서
-    // ST_Simplify보다 20배 이상 느려서(12s vs 0.5s) 프론트 10초 타임아웃을 넘겨버렸다.
-    // preserveCollapsed(세 번째 인자)를 켜지 않으면 작고 얇은 폴리곤이 통째로 사라지며 NULL을 반환해서
-    // ST_AsGeoJSON(NULL) 파싱 중 패닉(502)이 났다 - true로 최소 유효 도형을 유지한다.
-    let geom_expr = if simplify_tolerance_m > 0.0 {
-        "ST_Transform(ST_Simplify(wkb_geometry, $5, true), 4326)"
-    } else {
-        "ST_Transform(wkb_geometry, 4326)"
-    };
-    // row_limit은 서버에서 계산한 고정 후보값 중 하나라 포맷팅해도 인젝션 위험이 없다.
-    // ORDER BY로 매 요청 동일한 부분집합이 뽑히게 해 한도 초과 시에도 화면이 깜빡이지 않게 한다.
-    let query = format!(
-        r#"
-        SELECT ogc_fid, ST_AsGeoJSON({geom_expr}, 6), koftr_nm
-        FROM chamnamu_tree
-        WHERE wkb_geometry && ST_Transform(ST_MakeEnvelope($1, $2, $3, $4, 4326), 5179)
-        ORDER BY ogc_fid
-        LIMIT {row_limit}
-        "#
-    );
-
-    let rows = if simplify_tolerance_m > 0.0 {
-        client.query(&query, &[&min_lng, &min_lat, &max_lng, &max_lat, &simplify_tolerance_m]).await
-    } else {
-        client.query(&query, &[&min_lng, &min_lat, &max_lng, &max_lat]).await
-    }.map_err(ErrorInternalServerError)?;
-
-    // 단순화로 도형이 완전히 사라져 geometry가 NULL로 오는 경우 서버 패닉 대신 해당 폴리곤만 건너뛴다.
     let map_data_list: Vec<MapData> = rows.iter().filter_map(|row| {
         let geom_str: Option<String> = row.get(1);
         geom_str.map(|geom_str| MapData {
@@ -268,7 +237,7 @@ pub async fn get_polygons_in_bbox(
         })
     }).collect();
 
-    Ok((map_data_list, simplify_tolerance_m))
+    Ok((map_data_list, 0.0))
 }
 
 pub async fn get_nearest_polygon_by_species(

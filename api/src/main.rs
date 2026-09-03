@@ -30,8 +30,8 @@ async fn get_nearby_data(
     let min_lat = parse_f64(&query, "minLat")?;
     let max_lng = parse_f64(&query, "maxLng")?;
     let max_lat = parse_f64(&query, "maxLat")?;
-    // 줌레벨이 아니라 뷰포트 안 실제 폴리곤 개수로 단순화 정도를 정한다 - 프론트가 사용한 tolerance를
-    // 알 수 있게 헤더로 같이 내려줘서, 같은 폴리곤이라도 상세도가 다르면 캐시가 섞이지 않게 한다.
+    // 더 이상 서버에서 단순화하지 않고 항상 원본 geometry를 반환한다 - 헤더는 과거 버전과의
+    // 호환(프론트 캐시 키 포맷)을 위해 유지하되 값은 항상 0이다.
     let (list, tolerance_m) = db::get_polygons_in_bbox(pool, min_lng, min_lat, max_lng, max_lat).await?;
     Ok(HttpResponse::Ok()
         .insert_header(("X-Simplify-Tolerance", tolerance_m.to_string()))
